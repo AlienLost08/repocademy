@@ -63,3 +63,19 @@ def test_js_exercises(js_repo):
     g, _, files = analyze_repo(js_repo)
     ex = js_exercises(g, {f.path: f.text for f in files})
     assert any(e["symbol"].endswith("::normalize") for e in ex)
+
+
+def test_bug_options_are_never_comment_lines():
+    src = '''def f(x):
+    # if x == 1 this is a comment
+    if x == 1:
+        return 2
+    # another comment
+    y = x + 1
+    return y
+'''.splitlines()
+    sym = Symbol(id="m.py::f", name="f", qualname="f", kind="function", file="m2.py", start=1, end=len(src))
+    for seed in range(20):
+        q = mutate_symbol(src, sym, random.Random(seed))
+        if q:
+            assert all(int(o.split()[1]) not in (2, 5) for o in q["options"])

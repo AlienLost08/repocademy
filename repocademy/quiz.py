@@ -125,7 +125,8 @@ def mutate_symbol(src_lines: list[str], sym: Symbol, rng: random.Random) -> dict
                 ast.parse(textwrap.dedent("\n".join(mutated)))
             except SyntaxError:
                 continue
-        code_lines = [ln for ln in body if src_lines[ln - 1].strip()]
+        code_lines = [ln for ln in body if src_lines[ln - 1].strip() and ln not in skip
+                      and not src_lines[ln - 1].strip().startswith(("#", "//", "*", "/*", "@"))]
         others = [ln for ln in code_lines if ln != n and ln != sym.start]
         if len(others) < 3:
             continue
