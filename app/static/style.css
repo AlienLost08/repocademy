@@ -354,7 +354,7 @@ table.layout{width:100%;border-collapse:collapse;font-size:.9rem} .layout td{pad
   .side,.main{min-width:0;max-width:100vw}
   .chtoggle{display:flex;width:100%;justify-content:flex-start;gap:8px;margin-bottom:10px;overflow:hidden;white-space:nowrap}
   .chtoggle .dim{overflow:hidden;text-overflow:ellipsis}
-  .side{padding:14px 16px;border-right:0;border-bottom:1px solid var(--line)}
+  .side{top:0!important;padding:14px 16px;border-right:0;border-bottom:1px solid var(--line)}
   .side .chlist,.side>div:last-child{display:none}
   .side.open .chlist,.side.open>div:last-child{display:grid}
   .side .ringrow{padding:10px;margin-bottom:10px} .side .repo{margin-bottom:10px}

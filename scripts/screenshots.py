@@ -16,7 +16,8 @@ from playwright.sync_api import sync_playwright
 BASE = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:8800"
 OUT = Path(__file__).resolve().parent.parent / "docs" / "screenshots"
 OUT.mkdir(parents=True, exist_ok=True)
-PY, JS, FRESH = "psf__requests", "expressjs__express", "https://github.com/karpathy/micrograd"
+PY, JS, AX, FRESH = "psf__requests", "expressjs__express", "axios__axios", "https://github.com/karpathy/micrograd"
+CHAT_Q = "How does a Session pick the adapter for a URL?"
 
 
 def course(slug):
@@ -24,6 +25,8 @@ def course(slug):
 
 
 def main():
+    import shutil  # the "fresh build" shot needs a repo without a built course
+    shutil.rmtree(Path(__file__).resolve().parent.parent / "cache" / "courses" / "karpathy__micrograd", ignore_errors=True)
     req = course(PY)
     errors = []
     with sync_playwright() as p:
@@ -46,7 +49,8 @@ def main():
         page.fill("#urlInput", FRESH)
         page.click("#urlForm button[type=submit]")
         page.wait_for_selector("#buildOverlay:not(.hidden)")
-        page.wait_for_timeout(1500)
+        page.wait_for_selector('#pipeline li[data-k="plan"].active, #pipeline li[data-k="plan"].done', timeout=60_000)
+        page.wait_for_timeout(250)
         page.screenshot(path=OUT / "02-fresh-build.png")
         page.wait_for_url("**/c/**", timeout=120_000)
         page.wait_for_selector(".chlist li")
@@ -107,13 +111,35 @@ def main():
         chapter(JS, tr_js["num"], 1500)
         page.screenshot(path=OUT / "09-express-trace.png")
 
+        page.set_viewport_size({"width": 1440, "height": 1120})
         chapter(PY, 1)
         page.click("#openChat")
-        page.fill("#chatInput", "How does a Session pick the adapter for a URL?")
+        page.fill("#chatInput", CHAT_Q)
         page.press("#chatInput", "Enter")
-        page.wait_for_selector("#chatLog .srcs", timeout=240_000)
-        page.wait_for_timeout(1000)
+        page.wait_for_selector("#chatLog .ans.fin", timeout=240_000)
+        page.wait_for_timeout(600)
+        page.evaluate("document.querySelector('#chatLog').scrollTop = 1e6")
+        page.wait_for_timeout(300)
         page.screenshot(path=OUT / "10-ask-the-repo.png")
+        page.set_viewport_size({"width": 1440, "height": 900})
+        print("chat answer:", page.locator("#chatLog .msg.bot .ans").last.inner_text())
+        page.click("#chatClose")
+
+        tr_ax = next(c for c in course(AX)["chapters"] if c["kind"] == "trace")
+        chapter(AX, tr_ax["num"], 1500)
+        page.screenshot(path=OUT / "11-axios-trace.png")
+
+        page.click("#themeBtn")
+        chapter(PY, tr["num"], 1200)
+        page.screenshot(path=OUT / "12-light-mode.png")
+        page.click("#themeBtn")
+
+        m = browser.new_page(viewport={"width": 390, "height": 844}, device_scale_factor=2, is_mobile=True, has_touch=True)
+        m.on("pageerror", lambda e: errors.append(str(e)))
+        m.goto(f"{BASE}/c/{PY}#ch{tr['num']}")
+        m.wait_for_selector("#chToggle")
+        m.wait_for_timeout(1200)
+        m.screenshot(path=OUT / "13-mobile.png")
         browser.close()
     print("console errors:", errors or "none")
     for f in sorted(OUT.glob("*.png")):
