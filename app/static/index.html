@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Repocademy: turn any GitHub repo into a course</title>
+<meta name="description" content="Paste a GitHub link and get a guided course: chapters tied to real code, an architecture map, instant-graded quizzes and a chat that cites file:line.">
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="bg"><div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div><div class="grid"></div></div>
+
+<header class="nav">
+  <a class="brand" href="/" data-link>
+    <span class="logo" aria-hidden="true"><svg viewBox="0 0 32 32"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#a78bfa"/><stop offset="1" stop-color="#22d3ee"/></linearGradient></defs><path d="M16 4 2 11l14 7 11-5.5V20h3v-9L16 4Z" fill="url(#lg)"/><path d="M8 16.5v5.2C10 24 13 25 16 25s6-1 8-3.3v-5.2l-8 4-8-4Z" fill="url(#lg)" opacity=".75"/></svg></span>
+    <span>Repo<b>cademy</b></span>
+  </a>
+  <nav class="navlinks">
+    <a href="/#how" data-link>How it works</a>
+    <span class="llm-pill" id="llmPill" title="Language model status">…</span>
+  </nav>
+</header>
+
+<main id="view"></main>
+
+<div class="overlay hidden" id="buildOverlay" role="dialog" aria-modal="true" aria-labelledby="buildTitle">
+  <div class="build-card glass">
+    <div class="build-head"><div class="spinner" id="buildSpin"></div><div><div class="kicker">Building your course</div><h2 id="buildTitle">…</h2></div><div class="elapsed" id="buildTime">0.0s</div></div>
+    <ol class="pipeline" id="pipeline"></ol>
+    <div class="build-msg" id="buildMsg"></div>
+    <div class="build-actions"><button class="btn ghost" id="buildCancel">Close</button></div>
+  </div>
+</div>
+
+<aside class="drawer" id="chat" aria-label="Ask the repo">
+  <div class="drawer-head">
+    <div><div class="kicker">Ask the repo</div><div class="drawer-title" id="chatTitle">Grounded in the code</div></div>
+    <button class="icon-btn" id="chatClose" aria-label="Close chat">✕</button>
+  </div>
+  <div class="chat-log" id="chatLog"></div>
+  <div class="chat-suggest" id="chatSuggest"></div>
+  <form class="chat-form" id="chatForm"><input id="chatInput" autocomplete="off" placeholder="How does a request get sent?" maxlength="600"><button class="btn primary sm" type="submit">Ask</button></form>
+  <div class="chat-foot" id="chatFoot">Answers cite <code>file:line</code>. Citations that don't match retrieved code are removed.</div>
+</aside>
+
+<div class="map-panel hidden" id="mapPanel" role="dialog" aria-modal="true" aria-label="Architecture map">
+  <div class="map-head">
+    <div><div class="kicker">Architecture map</div><div class="map-title" id="mapTitle"></div></div>
+    <div class="map-tools">
+      <label class="toggle"><input type="checkbox" id="mapCalls" checked> calls</label>
+      <label class="toggle"><input type="checkbox" id="mapImports" checked> imports</label>
+      <label class="toggle"><input type="checkbox" id="mapTrace" checked> highlight the call trace</label>
+      <button class="icon-btn" id="mapClose" aria-label="Close map">✕</button>
+    </div>
+  </div>
+  <div class="map-body"><svg id="mapSvg"></svg><div class="map-side glass" id="mapSide"><div class="muted">Click a file to see what it does. Drag to rearrange, scroll to zoom.</div></div><div class="map-legend" id="mapLegend"></div></div>
+</div>
+
+<div class="toast" id="toast"></div>
+<canvas id="confetti"></canvas>
+
+<script src="/static/vendor/d3.min.js"></script>
+<script src="/static/vendor/highlight.min.js"></script>
+<script src="/static/vendor/hljs-python.min.js"></script>
+<script src="/static/vendor/hljs-typescript.min.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

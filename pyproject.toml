@@ -1,0 +1,14 @@
+[project]
+name = "repocademy"
+version = "0.1.0"
+description = "Turn any public GitHub repository into an interactive, guided course."
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [{name = "Satyam Kumar"}]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = ["cache", "showcase", ".venv", "node_modules"]
+addopts = "-q -p no:cacheprovider"
+filterwarnings = ["ignore::DeprecationWarning"]
