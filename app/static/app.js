@@ -364,7 +364,7 @@ __r`);
 }
 function runJS(code, call) {
   return new Promise((res) => {
-    const src = `onmessage=()=>{try{const f=new Function(${JSON.stringify(code + "\nreturn (" + call + ");")});const v=f();postMessage(v===undefined?"undefined":JSON.stringify(v))}catch(e){postMessage("throws "+e.name+": "+e.message)}}`;
+    const src = `onmessage=()=>{try{const f=new Function(${JSON.stringify(code + "\nreturn (" + call + ");")});const v=f();const j=typeof v==="function"?undefined:JSON.stringify(v);postMessage(j===undefined?String(v):j)}catch(e){postMessage("throws "+e.name+": "+e.message)}}`;
     const w = new Worker(URL.createObjectURL(new Blob([src], { type: "text/javascript" })));
     const t = setTimeout(() => { w.terminate(); res("timed out after 3s"); }, 3000);
     w.onmessage = (m) => { clearTimeout(t); w.terminate(); res(m.data); }; w.postMessage(0);

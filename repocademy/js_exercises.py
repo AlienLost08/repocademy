@@ -165,6 +165,7 @@ def _top_level(code: str, ts: bool) -> tuple[dict[str, str], dict[str, str]]:
 def _closure(name: str, funcs: dict[str, str], consts: dict[str, str], ts: bool) -> tuple[list[str], int] | None:
     """Source of `name` plus every helper/constant it needs, or None if it needs anything else."""
     order, seen, queue = [], set(), [name]
+    deps: dict[str, list[str]] = {}
     total = 0
     while queue:
         n = queue.pop()
@@ -187,15 +188,47 @@ def _closure(name: str, funcs: dict[str, str], consts: dict[str, str], ts: bool)
             return None
         used, declared = _idents(src)
         free = used - declared - JS_GLOBALS - _KW - {n}
+        deps[n] = sorted(f for f in free if f in funcs or f in consts)
         for f in free:
             if f in funcs or f in consts:
                 queue.append(f)
             else:
                 return None
         order.append((n, src))
-    # constants first, then helpers, then the function itself last
-    order.sort(key=lambda x: (x[0] not in consts, x[0] == name))
-    return [s for _, s in order], total
+    # dependencies before dependents (a `const` must exist before another const's initializer uses it)
+    src_of = dict(order)
+    out, done = [], set()
+
+    def visit(n: str):
+        if n in done:
+            return
+        done.add(n)
+        for d in deps.get(n, []):
+            visit(d)
+        out.append(src_of[n])
+    visit(name)
+    return out, total
+
+
+_LIT_WORDS = {"true", "false", "null", "undefined", "NaN", "Infinity"}
+
+
+def _pure_literal(args: str) -> bool:
+    """Only literal values: no variables, calls or member access hiding inside an object/array literal."""
+    bare = re.sub(r"'[^']*'|\"[^\"]*\"|`[^`]*`|/[^/\n]+/[gimsuy]*", "0", args)
+    for m in re.finditer(r"[A-Za-z_$][\w$]*", bare):
+        word, rest = m.group(0), bare[m.end():].lstrip()
+        if word in _LIT_WORDS or rest.startswith(":") or re.fullmatch(r"e\d*", word):
+            continue
+        return False
+    return True
+
+
+def _has_params(code: str, name: str) -> bool:
+    m = re.search(rf"(?:function\s*\*?\s*{re.escape(name)}\s*|{re.escape(name)}\s*=\s*(?:async\s*)?(?:function\s*)?)\(([^)]*)\)", code)
+    if m:
+        return bool(m.group(1).strip())
+    return bool(re.search(rf"{re.escape(name)}\s*=\s*(?:async\s+)?[A-Za-z_$]", code))
 
 
 def _examples(g: RepoGraph, files_text: dict[str, str], names: set[str]) -> dict[str, list[dict]]:
@@ -205,19 +238,21 @@ def _examples(g: RepoGraph, files_text: dict[str, str], names: set[str]) -> dict
     pat = re.compile(rf"(?<![\w$])(?:[A-Za-z_$][\w$]*\.)?({'|'.join(map(re.escape, sorted(names, key=len, reverse=True)))})"
                      rf"\(((?:\s*{_LIT}\s*,?)*)\)")
     for path, m in g.modules.items():
-        if m.role != "test" and not path.endswith((".md",)):
+        if m.role not in ("test", "source", "example") and not path.endswith((".md",)):
             continue
         for i, line in enumerate(files_text.get(path, "").splitlines(), 1):
             if line.lstrip().startswith(("//", "*", "import ", "const {")):
                 continue
             for mm in pat.finditer(line):
                 args = mm.group(2).strip().rstrip(",").strip()
-                if len(args) > 90:
+                if len(args) > 90 or not _pure_literal(args):
                     continue
                 call = f"{mm.group(1)}({args})"
                 lst = out.setdefault(mm.group(1), [])
                 if call not in {e["call"] for e in lst}:
-                    lst.append({"call": call, "from": path, "line": i})
+                    lst.append({"call": call, "from": path, "line": i, "test": m.role == "test"})
+    for lst in out.values():  # calls copied from the tests first: they are what the authors meant to check
+        lst.sort(key=lambda e: not e["test"])
     return out
 
 
@@ -241,11 +276,15 @@ def js_exercises(g: RepoGraph, files_text: dict[str, str], limit: int = 8) -> li
             if not got:
                 continue
             parts, _ = got
-            cands[name] = (s, "\n\n".join(parts))
+            code = "\n\n".join(parts)
+            # toJSON makes the shown output lie about the value; one-liners returning a constant teach nothing
+            if "toJSON" in code or re.fullmatch(r"(?:const|let|var)\s+\w+\s*=\s*\(\)\s*=>\s*[\w.]+;?", parts[-1].strip()):
+                continue
+            cands[name] = (s, code)
     examples = _examples(g, files_text, set(cands))
     out = []
     for name, (s, code) in sorted(cands.items(), key=lambda kv: -g.rank.get(kv[1][0].id, 0)):
-        ex = examples.get(name)
+        ex = [e for e in examples.get(name, []) if not e["call"].endswith("()") or not _has_params(code, name)]
         if not ex:
             continue
         out.append({"type": "js_run", "symbol": s.id, "title": f"Predict what `{ex[0]['call']}` returns", "file": s.file,
