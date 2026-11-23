@@ -11,10 +11,22 @@ import re
 
 from .llm import LLM
 
-SYSTEM = ("You write short, accurate introductions for chapters of a course that teaches a codebase to a new developer. "
+SYSTEM = ("You write the opening lines of a chapter in a course that teaches a codebase to a new developer. "
           "Use ONLY the facts provided. Wrap every code name in backticks, spelled exactly as in the facts. "
-          "Write 2 or 3 plain sentences, at most 70 words. No headings, no lists, no greetings, no line numbers.")
+          "Write 2 plain sentences, at most 50 words. Start with the most important code name listed in THIS chapter's facts, "
+          "never with 'This chapter', 'In this chapter' or 'Welcome'. Say what the code does and why a reader should care. "
+          "Only say a class has a method if the facts list it as that class's method. "
+          "No headings, lists, greetings, line numbers or hype words like crucial, powerful, robust, delve, intricate.")
 _BAD = re.compile(r"(?i)\b(as an ai|i'm|i am|i think|in this course we|let me|sorry)\b|^#|\n\s*[-*] ")
+_HYPE = r"(?:crucial|essential|vital|key|powerful|robust|intricate|seamless|pivotal)"
+_FILLER = [(re.compile(r"(?i)\bplays an? " + _HYPE + r" role in\b"), "handles"),
+           (re.compile(r"(?i)\b(is|are) (?:crucial|essential|vital|key|important|pivotal) (for|to|in)\b"), r"\1 used \2"),
+           (re.compile(r"(?i)\b" + _HYPE + r",?\s+and\s+"), ""),
+           (re.compile(r"(?i)\b(an?|the|its|their|this) " + _HYPE + r"\s+"), r"\1 "),
+           (re.compile(r"(?i)\bwe delve into\b"), "we look at"), (re.compile(r"(?i)\bdelves? into\b"), "covers")]
+_GENERIC = re.compile(r"(?i)^(?:this|the) chapter|^welcome|^chapter\b|\bin (?:this )?chapter\b|\bin chapter \d")
+_IN_CLASS = re.compile(r"`(?P<c>[A-Z][\w$]*)`\s+class\b[^.]*?\b(?:includes|contains|has|provides|offers|defines|exposes|with)\b(?P<rest>[^.]*)")
+_IN_FILE = re.compile(r"`(?P<f>[\w./-]+\.(?:py|js|ts|mjs|cjs|tsx))`\s+(?:file\s+)?(?:contains|defines|includes|holds|has)\b(?P<rest>[^.]*)")
 
 
 def allowed_names(course: dict) -> set[str]:
@@ -52,7 +64,8 @@ def check(text: str, allowed: set[str]) -> tuple[bool, list[str]]:
 
 def facts_for(course: dict, ch: dict) -> str:
     r = course["repo"]
-    lines = [f"Repository: {r['owner']}/{r['name']}" + (f" ({r['description']})" if r.get("description") else ""),
+    desc = f" ({r['description']})" if r.get("description") and ch["kind"] == "overview" else ""
+    lines = [f"Repository: {r['owner']}/{r['name']}" + desc,
              f"Chapter {ch['num']}: {ch['title']}: {ch['subtitle']}"]
     if ch.get("files"):
         lines.append("Files: " + ", ".join(f"`{f}`" for f in ch["files"][:6]))
@@ -70,6 +83,38 @@ def facts_for(course: dict, ch: dict) -> str:
     if ch["kind"] == "tests":
         lines.append(f"Test command: `{ch.get('test_command')}`; framework: {ch.get('test_framework') or 'unknown'}")
     return "\n".join(lines)
+
+
+def structure_problems(text: str, course: dict) -> list[str]:
+    """Claims about where code lives, checked against the parsed source: "`C` class includes `m`" needs C.m,
+    "`file.py` contains `X`" needs X defined in that file."""
+    syms = course.get("symbols", [])
+    quals = {s["name"] for s in syms}
+    by_name: dict[str, list[dict]] = {}
+    for s in syms:
+        by_name.setdefault(s["name"].rsplit(".", 1)[-1], []).append(s)
+    bad = []
+    for m in _IN_CLASS.finditer(text):
+        cls = m.group("c")
+        if cls not in quals:
+            continue
+        for name in re.findall(r"`([\w$#]+)(?:\(\))?`", m.group("rest")):
+            if f"{cls}.{name}" in quals or name not in by_name:
+                continue
+            # a known symbol that is not a member of this class (e.g. a module-level helper)
+            if all("." not in x["name"] or not x["name"].startswith(cls + ".") for x in by_name[name]):
+                bad.append(f"{name} is not part of {cls}")
+    for m in _IN_FILE.finditer(text):
+        f = m.group("f")
+        files = {s["file"] for s in syms}
+        full = next((x for x in files if x == f or x.endswith("/" + f)), None)
+        if not full:
+            continue
+        for name in re.findall(r"`([\w$#.]+)(?:\(\))?`", m.group("rest")):
+            cands = [x for x in syms if x["name"] == name or x["name"].rsplit(".", 1)[-1] == name]
+            if cands and not any(x["file"] == full for x in cands):
+                bad.append(f"{name} is not defined in {f}")
+    return bad
 
 
 def trim(text: str, max_sentences: int = 4) -> str:
@@ -91,8 +136,12 @@ def polish(text: str, ch: dict) -> str:
                 t = t[len(head):].lstrip(" :.-")
     t = re.sub(r'^In (?:this )?[Cc]hapter(?:\s+\d+)?,?\s*(?:"[^"]{1,80}"|[^,"]{1,60})?,?\s*we\s+(?:delve into|explore|dive into|look at)\s+',
                "This chapter covers ", t)
+    for pat, rep in _FILLER:
+        t = pat.sub(rep, t)
+    t = re.sub(r"\b([Aa])n ([b-df-hj-np-tv-z])", r"\1 \2", t)
+    t = re.sub(r"\b([Aa]) ([aeio])", r"\1n \2", t)
     t = re.sub(r"\b(?:we|We) delve into\b", "we look at", t)
-    t = re.sub(r"\bdelves into\b", "covers", t)
+    t = re.sub(r"\s{2,}", " ", t).strip()
     return trim(t[:1].upper() + t[1:], 3)
 
 
@@ -102,19 +151,31 @@ def narrate_chapter(llm: LLM, course: dict, ch: dict, allowed: set[str]) -> tupl
     msgs = [{"role": "system", "content": SYSTEM},
             {"role": "user", "content": facts + "\n\nWrite the chapter introduction now."}]
     problems: list[str] = []
-    for attempt in range(2):
+    for attempt in range(3):
         try:
-            text = llm.chat(msgs, max_tokens=160, temperature=0.2 if attempt == 0 else 0.0)
+            text = llm.chat(msgs, max_tokens=120, temperature=0.2 if attempt == 0 else 0.0)
         except Exception as e:  # network / model errors -> keep the template
             return None, [f"error: {type(e).__name__}"]
         text = polish(re.sub(r"\s+", " ", text).strip().strip('"'), ch)
+        if attempt < 2 and _GENERIC.search(text):
+            problems.append("rejected (generic opener)")
+            msgs.append({"role": "assistant", "content": text})
+            msgs.append({"role": "user", "content": "Don't open with 'This chapter' or 'Welcome'. Start with a code name from the facts and say what it does. 2 sentences."})
+            continue
         ok, bad = check(text, allowed)
         if ok:
-            return text, problems
+            bad = structure_problems(text, course)
+            if not bad:
+                return text, problems
+            problems.append(f"rejected ({'; '.join(bad[:2])})")
+            msgs.append({"role": "assistant", "content": text})
+            msgs.append({"role": "user", "content": "That is wrong: " + "; ".join(bad[:3]) +
+                         ". Rewrite it, only attributing methods and files as the facts state."})
+            continue
         problems.append(f"rejected ({', '.join(bad[:3])})")
         msgs.append({"role": "assistant", "content": text})
         if bad == ["length/style"]:
-            msgs.append({"role": "user", "content": "Rewrite it as 2 or 3 plain sentences, under 70 words, no lists or headings."})
+            msgs.append({"role": "user", "content": "Rewrite it as 2 plain sentences, under 50 words, starting with a code name, no lists or headings."})
         else:
             msgs.append({"role": "user", "content": "Some names you used are not in the facts: " + ", ".join(bad[:5]) +
                          ". Rewrite using only names from the facts."})

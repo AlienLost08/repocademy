@@ -87,3 +87,18 @@ def test_polish_removes_filler_openers():
     assert polish('In Chapter 2, "The front door: API," we look at the core. B.', ch) == "This chapter covers the core. B."
     assert polish("In Chapter 4, Models, we delve into models. B.", ch) == "This chapter covers models. B."
     assert polish("Welcome to flask, a framework. B.", {"title": "Welcome to flask"}) == "Welcome to flask, a framework. B."
+
+
+def test_structure_check_rejects_wrong_membership():
+    from repocademy.narrate import structure_problems
+    course = {"symbols": [{"name": "Session", "file": "s.py"}, {"name": "Session.send", "file": "s.py"},
+                          {"name": "merge_setting", "file": "s.py"}, {"name": "Response", "file": "m.py"}]}
+    assert structure_problems("The `Session` class provides `send`.", course) == []
+    assert structure_problems("The `Session` class includes `merge_setting`.", course)
+    assert structure_problems("`m.py` contains `Session`.", course)
+
+
+def test_polish_strips_hype_keeps_grammar():
+    from repocademy.narrate import polish
+    assert polish("It is a robust and flexible system. It plays a crucial role in routing.", {}) == \
+        "It is a flexible system. It handles routing."

@@ -43,7 +43,7 @@ def _window(c: Chunk, question: str, max_lines: int = 16) -> tuple[int, list[str
         v = sum(score[i: i + max_lines - 1])
         if v > best:
             best, best_i = v, i
-    if best <= 0:
+    if best <= 0 or best_i == 1:
         return c.start, lines[:max_lines]
     return c.start + best_i - 1, [lines[0]] + ["…"] + lines[best_i: best_i + max_lines - 2]
 
@@ -98,8 +98,16 @@ def _sources(hits: list[Chunk], repo: dict, question: str) -> list[dict]:
     out = []
     for c in hits:
         first, lines = _window(c, question, 10)
+        rows, n = [], c.start
+        for ln in lines:
+            if ln == "…":
+                rows.append([None, "…"])
+                n = first + 1
+                continue
+            rows.append([n, ln])
+            n += 1
         out.append({"file": c.file, "start": c.start, "end": c.end, "title": c.title, "summary": c.summary,
-                    "preview": [ln for ln in lines if ln != "…"][:8], "preview_start": c.start,
+                    "rows": rows[:10],
                     "url": f"{repo['url']}/blob/{repo['sha']}/{c.file}#L{c.start}-L{c.end}"})
     return out
 
@@ -108,7 +116,10 @@ def _norm_q(q: str) -> str:
     return " ".join(re.findall(r"[\w.]+", q.lower()))
 
 
-def ask(course: dict, course_dir: Path, question: str, llm: LLM | None, history: list[dict] | None = None) -> Iterator[dict]:
+def ask(course: dict, course_dir: Path, question: str, llm: LLM | None, history: list[dict] | None = None,
+        lock=None) -> Iterator[dict]:
+    """Stream events: sources (immediately), status, tokens, final. `lock` (optional) guards the model and is
+    taken only after the sources are out, so retrieved code shows instantly even while intros are being written."""
     t0 = time.time()
     repo = course["repo"]
     key = (str(course_dir), repo.get("sha"), _norm_q(question), llm.label if llm else None)
@@ -150,6 +161,18 @@ def ask(course: dict, course_dir: Path, question: str, llm: LLM | None, history:
     msgs.append({"role": "user", "content": f"{context}\n\nQuestion: {question}"})
     buf = []
     first_token_ms = None
+    acquired = False
+    if lock is not None:
+        acquired = lock.acquire(blocking=False)
+        if not acquired:
+            yield {"type": "status", "text": "the model is busy writing chapter intros; waiting for it…"}
+            acquired = lock.acquire(timeout=90)
+            if not acquired:
+                text = fallback_answer(hits)
+                cleaned, cites, removed = validate_citations(text, hits, repo["url"], repo["sha"])
+                yield {"type": "final", "text": cleaned, "citations": cites, "removed": removed, "model": None,
+                       "corrections": [], "error": "busy"}
+                return
     try:
         for piece in llm.stream(msgs, max_tokens=220, purpose="chat"):
             if first_token_ms is None:
@@ -163,6 +186,9 @@ def ask(course: dict, course_dir: Path, question: str, llm: LLM | None, history:
             yield {"type": "final", "text": cleaned, "citations": cites, "removed": removed, "model": None,
                    "corrections": [], "error": type(e).__name__}
             return
+    finally:
+        if acquired:
+            lock.release()
     text = "".join(buf)
     text, corrections, extra = check_claims(text, g, hit_ids | set(ids))
     cleaned, cites, removed = validate_citations(text, hits, repo["url"], repo["sha"], allowed_extra + extra)

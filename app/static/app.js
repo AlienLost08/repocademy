@@ -118,6 +118,11 @@ function cardHTML(c) {
 
 /* ---------- build flow ---------- */
 const STAGES = [["clone", "Shallow clone"], ["scan", "Read files"], ["parse", "Parse with ast / tree-sitter"], ["map", "Map imports, calls & entry points"], ["plan", "Plan chapters, quizzes & exercises"], ["done", "Course ready"]];
+function countUp(el, to) {
+  const from = +el.dataset.v || 0; if (from === to) return; el.dataset.v = to;
+  const t0 = performance.now(), d = 700;
+  (function tick(t) { const k = Math.min(1, (t - t0) / d), e = 1 - Math.pow(1 - k, 3); el.textContent = Math.round(from + (to - from) * e).toLocaleString(); if (k < 1) requestAnimationFrame(tick); })(t0);
+}
 async function startBuild(url) {
   $("#formErr").textContent = "";
   if (!url.trim()) { $("#formErr").textContent = "Paste a GitHub URL first."; return; }
@@ -127,24 +132,40 @@ async function startBuild(url) {
   const ov = $("#buildOverlay"); ov.classList.remove("hidden");
   $("#buildTitle").textContent = res.slug.replace("__", "/"); $("#buildMsg").textContent = ""; $("#buildMsg").className = "build-msg";
   $("#buildSpin").className = "spinner"; $("#buildSpin").textContent = "";
-  $("#pipeline").innerHTML = STAGES.map(([k, l]) => `<li data-k="${k}"><span class="dot"></span><div><div>${l}</div><div class="m"></div></div><span class="t"></span></li>`).join("");
+  $$("#buildCounts b").forEach((b) => { b.textContent = "0"; b.dataset.v = 0; });
+  $("#pipeline").innerHTML = STAGES.map(([k, l], i) => `<li data-k="${k}" style="--i:${i}"><span class="dot"></span><div><div>${l}</div><div class="m"></div></div><span class="t"></span></li>`).join("");
+  const bar = $("#buildBar"); bar.className = ""; bar.style.width = "0%";
+  // smooth bar: each stage owns a slice; inside the active slice the bar eases toward (never reaches) its end
+  let stageIdx = 0, stageT = performance.now(), shown = 0, finished = false, stop = false;
+  const span = 100 / (STAGES.length - 1);
+  (function anim(t) {
+    if (stop) return;
+    const creep = finished ? 0 : span * 0.92 * (1 - Math.exp(-(t - stageT) / 2500));
+    const target = finished ? 100 : Math.min(99, stageIdx * span + creep);
+    shown += (target - shown) * 0.12; bar.style.width = shown.toFixed(2) + "%";
+    if (!(finished && shown > 99.6)) requestAnimationFrame(anim); else bar.style.width = "100%";
+  })(performance.now());
   const t0 = performance.now(); const timer = setInterval(() => $("#buildTime").textContent = ((performance.now() - t0) / 1000).toFixed(1) + "s", 100);
-  let stop = false; $("#buildCancel").onclick = () => { stop = true; clearInterval(timer); ov.classList.add("hidden"); };
+  $("#buildCancel").onclick = () => { stop = true; clearInterval(timer); ov.classList.add("hidden"); };
   while (!stop) {
-    await new Promise((r) => setTimeout(r, 350));
+    await new Promise((r) => setTimeout(r, 300));
     let j; try { j = await api("/api/jobs/" + res.job); } catch { continue; }
     const seen = new Set(j.stages.map((s) => s.stage));
-    const last = j.stages[j.stages.length - 1];
+    const idx = Math.max(0, ...STAGES.map(([k], i) => (seen.has(k) ? i : 0)));
+    if (idx !== stageIdx) { stageIdx = idx; stageT = performance.now(); }
     STAGES.forEach(([k], i) => {
       const li = $(`#pipeline li[data-k="${k}"]`); const st = j.stages.filter((s) => s.stage === k).pop();
       const laterSeen = STAGES.slice(i + 1).some(([k2]) => seen.has(k2));
-      li.className = st && (laterSeen || k === "done") ? "done" : st ? "active" : "";
-      if (li.className === "done") li.querySelector(".dot").textContent = "✓";
+      const cls = st && (laterSeen || k === "done") ? "done" : st ? "active" : "";
+      if (li.className !== cls) { li.className = cls; if (cls === "done") li.querySelector(".dot").textContent = "✓"; }
       if (st) { li.querySelector(".m").textContent = st.msg; li.querySelector(".t").textContent = st.t.toFixed(1) + "s"; }
     });
-    if (j.status === "done") { clearInterval(timer); $("#buildSpin").className = "spinner done"; $("#buildSpin").textContent = "✓"; await new Promise((r) => setTimeout(r, 700)); ov.classList.add("hidden"); go("/c/" + j.slug); return; }
-    if (j.status === "error") { clearInterval(timer); $("#buildSpin").className = "spinner err"; $("#buildMsg").textContent = j.error; $("#buildMsg").className = "build-msg err"; return; }
-    if (last) $("#buildMsg").textContent = "";
+    j.stages.forEach((st) => Object.entries(st.data || {}).forEach(([k, v]) => { const el = $(`#buildCounts b[data-c="${k}"]`); if (el && typeof v === "number") countUp(el, v); }));
+    if (j.status === "done") {
+      finished = true; clearInterval(timer); bar.className = "ok"; $("#buildSpin").className = "spinner done"; $("#buildSpin").textContent = "✓";
+      await new Promise((r) => setTimeout(r, 900)); stop = true; ov.classList.add("hidden"); go("/c/" + j.slug); return;
+    }
+    if (j.status === "error") { stop = true; clearInterval(timer); bar.className = "err"; $("#buildSpin").className = "spinner err"; $("#buildMsg").textContent = j.error; $("#buildMsg").className = "build-msg err"; return; }
   }
 }
 
@@ -181,12 +202,14 @@ function renderCourse(scroll = true) {
       <div class="repo"><span class="o">${esc(c.repo.owner)} /</span><h2>${esc(c.repo.name)}</h2><a href="${esc(c.repo.url)}/tree/${esc(c.repo.sha)}" target="_blank" rel="noopener">@ ${esc(c.repo.sha.slice(0, 7))} ↗</a></div>
       <div class="ringrow glass">${ringSVG(pct)}<div class="xp"><b>${prog.xp || 0} XP</b>${Object.keys(prog.done).length}/${c.chapters.length} chapters · ${Object.values(prog.ans).filter((a) => a.ok).length} correct answers</div></div>
       <div class="side-actions"><button class="btn sm" id="openMap">🗺️ Map</button><button class="btn sm" id="openChat">💬 Ask</button></div>
+      <button class="btn sm chtoggle" id="chToggle" aria-expanded="false">☰ Chapters · ${CUR}/${c.chapters.length} <span class="dim">${inline(ch.title)}</span></button>
       <ol class="chlist">${c.chapters.map((x) => `<li class="${prog.done[x.id] ? "done" : ""}"><a href="#ch${x.num}" data-link class="${x.num === CUR ? "cur" : ""}"><span class="num">${prog.done[x.id] ? "✓" : x.num}</span><span class="ttl">${inline(x.title)}</span><span class="min">${x.minutes}m</span></a></li>`).join("")}</ol>
       <div style="margin-top:18px;font-size:.75rem" class="dim">Built in ${c.build_seconds}s from ${c.stats.parsed} files · ${c.stats.symbols} symbols · ${c.stats.calls} call edges.<br><a href="/" data-link>← All courses</a></div>
     </aside>
     <div class="main" id="chMain">${chapterHTML(ch, prog)}</div></div>`;
   if (!$("#fab")) { const f = document.createElement("button"); f.id = "fab"; f.className = "btn primary fab"; f.innerHTML = "💬 Ask the repo"; f.onclick = () => openChat(); document.body.appendChild(f); }
   $("#openMap").onclick = openMap; $("#openChat").onclick = () => openChat();
+  $("#chToggle").onclick = () => { const s = $(".side"); s.classList.toggle("open"); $("#chToggle").setAttribute("aria-expanded", s.classList.contains("open")); };
   wireChapter(ch);
   if (scroll) window.scrollTo({ top: 0 });
 }
@@ -490,13 +513,25 @@ function renderAnswer(text, cites) {
   return html;
 }
 let chatBusy = false;
+function langOf(file) { return /\.tsx?$/.test(file) ? "typescript" : /\.[cm]?jsx?$/.test(file) ? "javascript" : "python"; }
+function sourceCards(sources) {
+  return `<div class="srcs"><span class="lbl">Found in the code</span>${sources.slice(0, 3).map((s, i) => `
+    <details class="src-card"${i === 0 ? " open" : ""}><summary><span class="sc-t">${esc(s.title)}</span><a class="cite" href="${esc(s.url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(s.file.split("/").pop())}:${s.start}</a></summary>
+    ${s.rows ? codeTable(s.rows, langOf(s.file)) : ""}</details>`).join("")}
+    ${sources.length > 3 ? `<div class="more">${sources.slice(3, 6).map((s) => `<a class="cite" href="${esc(s.url)}" target="_blank" rel="noopener" title="${esc(s.title)}">${esc(s.file.split("/").pop())}:${s.start}</a>`).join("")}</div>` : ""}</div>`;
+}
+const secs = (ms) => (ms / 1000).toFixed(1) + "s";
 async function sendChat(q) {
   if (chatBusy) return; chatBusy = true;
   $("#chatInput").value = ""; $("#chatSuggest").innerHTML = "";
   const log = $("#chatLog");
   log.insertAdjacentHTML("beforeend", `<div class="msg user">${esc(q)}</div>`);
-  const bot = document.createElement("div"); bot.className = "msg bot"; bot.innerHTML = `<span class="typing"><i></i><i></i><i></i></span> <span class="dim">searching the code…</span>`; log.appendChild(bot); log.scrollTop = log.scrollHeight;
+  const bot = document.createElement("div"); bot.className = "msg bot";
+  bot.innerHTML = `<div class="ans"><span class="typing"><i></i><i></i><i></i></span> <span class="dim">searching the code…</span></div><div class="src-slot"></div><div class="meta"></div>`;
+  log.appendChild(bot); log.scrollTop = log.scrollHeight;
+  const ans = $(".ans", bot), slot = $(".src-slot", bot), meta = $(".meta", bot);
   let raw = "", sources = [];
+  const t0 = performance.now();
   try {
     const r = await fetch(`/api/courses/${SLUG}/ask`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question: q, history: HISTORY.slice(-4) }) });
     const reader = r.body.getReader(); const dec = new TextDecoder(); let buf = "";
@@ -506,20 +541,38 @@ async function sendChat(q) {
       while ((idx = buf.indexOf("\n\n")) >= 0) {
         const line = buf.slice(0, idx); buf = buf.slice(idx + 2); if (!line.startsWith("data:")) continue;
         const ev = JSON.parse(line.slice(5));
-        if (ev.type === "sources") { sources = ev.sources; bot.innerHTML = `<span class="typing"><i></i><i></i><i></i></span> <span class="dim">read ${sources.length} code excerpts, writing…</span>`; }
-        else if (ev.type === "token") { raw += ev.text; bot.innerHTML = md(raw) + `<span class="typing"><i></i><i></i><i></i></span>`; }
+        if (ev.type === "sources") {
+          sources = ev.sources;
+          slot.innerHTML = sources.length ? sourceCards(sources) : "";
+          ans.innerHTML = `<span class="typing"><i></i><i></i><i></i></span> <span class="dim">${sources.length ? `found ${sources.length} matching pieces of code in ${secs(performance.now() - t0)}, ` : ""}${LLM ? "writing an answer…" : ""}</span>`;
+        } else if (ev.type === "status") { ans.innerHTML = `<span class="typing"><i></i><i></i><i></i></span> <span class="dim">${esc(ev.text)}</span>`; }
+        else if (ev.type === "token") { raw += ev.text; ans.innerHTML = md(raw) + `<span class="typing"><i></i><i></i><i></i></span>`; }
         else if (ev.type === "final") {
           raw = ev.text;
-          bot.innerHTML = renderAnswer(ev.text, ev.citations) + (sources.length ? `<div class="srcs"><span class="lbl">Retrieved code</span>${sources.slice(0, 6).map((s) => `<a class="cite" href="${esc(s.url)}" target="_blank" rel="noopener" title="${esc(s.title)}">${esc(s.file.split("/").pop())}:${s.start}</a>`).join("")}</div>` : "") +
-            `<div class="meta">${ev.model ? "Written by " + esc(ev.model) : "Search only (no model)"} · ${ev.citations.length} verified citation${ev.citations.length === 1 ? "" : "s"}${ev.removed ? ` · ${ev.removed} unverifiable citation${ev.removed > 1 ? "s" : ""} removed` : ""}</div>`;
+          ans.innerHTML = renderAnswer(ev.text, ev.citations); ans.classList.add("fin");
+          const fixes = (ev.corrections || []).length;
+          const bits = [ev.model ? "Written by " + esc(ev.model.replace("ollama:", "")) : "Search only (no model)",
+            `${ev.citations.length} verified citation${ev.citations.length === 1 ? "" : "s"}`];
+          if (ev.model) bits.push(`<span class="gc" title="${esc((ev.corrections || []).join("\n") || "Every caller/callee claim matched the static call graph")}">${fixes ? `⚑ graph-checked · ${fixes} claim${fixes > 1 ? "s" : ""} corrected` : "✓ graph-checked"}</span>`);
+          if (ev.removed) bits.push(`${ev.removed} unverifiable citation${ev.removed > 1 ? "s" : ""} removed`);
+          bits.push(ev.cached ? "⚡ cached" : ev.total_ms ? `first word ${secs(ev.first_token_ms || ev.total_ms)} · done ${secs(ev.total_ms)}` : secs(performance.now() - t0));
+          meta.innerHTML = bits.join(" · ");
         }
         log.scrollTop = log.scrollHeight;
       }
     }
     HISTORY.push({ role: "user", content: q }, { role: "assistant", content: raw });
-  } catch (e) { bot.innerHTML = `<span style="color:var(--red)">Something went wrong: ${esc(e.message)}</span>`; }
+  } catch (e) { ans.innerHTML = `<span style="color:var(--red)">Something went wrong: ${esc(e.message)}</span>`; }
   chatBusy = false;
 }
+
+/* ---------- theme ---------- */
+function setTheme(t) {
+  document.documentElement.dataset.theme = t; localStorage.setItem("repocademy:theme", t);
+  const b = $("#themeBtn"); if (b) { b.textContent = t === "light" ? "☾" : "☀"; b.title = t === "light" ? "Switch to dark mode" : "Switch to light mode"; }
+}
+$("#themeBtn").onclick = () => setTheme(document.documentElement.dataset.theme === "light" ? "dark" : "light");
+setTheme(document.documentElement.dataset.theme || "dark");
 
 /* ---------- boot ---------- */
 (async function boot() {

@@ -79,10 +79,29 @@ def course_page(slug: str):
     return FileResponse(STATIC / "index.html")
 
 
+def _warm_up():
+    """Load the chat model into memory once, so the first question doesn't pay the model load time."""
+    llm = get_llm("chat")
+    if llm is None:
+        return
+    try:
+        with LLM_LOCK:
+            llm.chat([{"role": "user", "content": "ok"}], max_tokens=1, purpose="chat")
+    except Exception:
+        pass
+
+
+@app.on_event("startup")
+def _startup():
+    if os.environ.get("REPOCADEMY_WARMUP", "1") != "0":
+        threading.Thread(target=_warm_up, daemon=True).start()
+
+
 @app.get("/api/health")
 def health():
-    llm = get_llm("chat")
-    return {"ok": True, "version": __version__, "llm": llm.label if llm else None}
+    llm, nar = get_llm("chat"), get_llm("narrate")
+    return {"ok": True, "version": __version__, "llm": llm.label if llm else None,
+            "narrate_llm": nar.label if nar else None}
 
 
 @app.get("/api/courses")
@@ -174,13 +193,8 @@ def ask_repo(slug: str, req: AskReq):
     llm = get_llm("chat")
 
     def gen():
-        acquired = LLM_LOCK.acquire(timeout=90) if llm else False
-        try:
-            for ev in ask(course, p, req.question, llm if acquired else None, req.history):
-                yield f"data: {json.dumps(ev)}\n\n"
-        finally:
-            if acquired:
-                LLM_LOCK.release()
+        for ev in ask(course, p, req.question, llm, req.history, lock=LLM_LOCK):
+            yield f"data: {json.dumps(ev)}\n\n"
 
     return StreamingResponse(gen(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"})
 

@@ -7,6 +7,7 @@
 <meta name="description" content="Paste a GitHub link and get a guided course: chapters tied to real code, an architecture map, instant-graded quizzes and a chat that cites file:line.">
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/static/style.css">
+<script>try{var t=localStorage.getItem("repocademy:theme");document.documentElement.dataset.theme=t||"dark"}catch(e){}</script>
 </head>
 <body>
 <div class="bg"><div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div><div class="grid"></div></div>
@@ -19,6 +20,7 @@
   <nav class="navlinks">
     <a href="/#how" data-link>How it works</a>
     <span class="llm-pill" id="llmPill" title="Language model status">…</span>
+    <button class="icon-btn theme-btn" id="themeBtn" aria-label="Toggle light and dark mode">☀</button>
   </nav>
 </header>
 
@@ -27,6 +29,8 @@
 <div class="overlay hidden" id="buildOverlay" role="dialog" aria-modal="true" aria-labelledby="buildTitle">
   <div class="build-card glass">
     <div class="build-head"><div class="spinner" id="buildSpin"></div><div><div class="kicker">Building your course</div><h2 id="buildTitle">…</h2></div><div class="elapsed" id="buildTime">0.0s</div></div>
+    <div class="buildbar"><i id="buildBar"></i></div>
+    <div class="counters" id="buildCounts"><div><b data-c="files">0</b><span>files parsed</span></div><div><b data-c="symbols">0</b><span>functions &amp; classes</span></div><div><b data-c="calls">0</b><span>call edges</span></div><div><b data-c="questions">0</b><span>quiz questions</span></div></div>
     <ol class="pipeline" id="pipeline"></ol>
     <div class="build-msg" id="buildMsg"></div>
     <div class="build-actions"><button class="btn ghost" id="buildCancel">Close</button></div>
