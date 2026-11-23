@@ -1,7 +1,7 @@
 """Pre-build the showcase courses shipped in ./showcase so the demo opens instantly.
 
 Usage:  python scripts/build_showcase.py [owner/repo ...] [--refresh]
-(--refresh re-clones; intros from an earlier build of the same commit are reused.)
+(--refresh re-clones; intros from an earlier build of the same commit are reused unless --renarrate.)
 Needs network access to github.com (shallow clone). Narration uses a local model through Ollama
 when one is available (set REPOCADEMY_LLM=off to skip it).
 """
@@ -21,7 +21,7 @@ from repocademy.builder import build_course  # noqa: E402
 from repocademy.llm import get_llm  # noqa: E402
 from repocademy.narrate import narrate_course  # noqa: E402
 
-DEFAULT = ["psf/requests", "pallets/flask", "expressjs/express"]
+DEFAULT = ["psf/requests", "pallets/flask", "expressjs/express", "axios/axios"]
 
 
 def reuse_narration(course: dict, old_path: Path) -> int:
@@ -52,7 +52,7 @@ def main(repos: list[str]) -> None:
         t0 = time.time()
         course = build_course(url, work, refresh="--refresh" in sys.argv)
         src = work / "courses" / course["slug"]
-        if reuse_narration(course, out_root / course["slug"] / "course.json"):
+        if "--renarrate" not in sys.argv and reuse_narration(course, out_root / course["slug"] / "course.json"):
             (src / "course.json").write_text(json.dumps(course))
         elif llm is not None:
             narrate_course(course, llm, progress=lambda i, n: print(f"  narrating chapter {i}/{n}", end="\r"))

@@ -17,10 +17,10 @@ SYSTEM = ("You write the opening lines of a chapter in a course that teaches a c
           "never with 'This chapter', 'In this chapter' or 'Welcome'. Say what the code does and why a reader should care. "
           "Only say a class has a method if the facts list it as that class's method. "
           "No headings, lists, greetings, line numbers or hype words like crucial, powerful, robust, delve, intricate.")
-_BAD = re.compile(r"(?i)\b(as an ai|i'm|i am|i think|in this course we|let me|sorry)\b|^#|\n\s*[-*] ")
+_BAD = re.compile(r"(?i)\b(as an ai|i'm|i am|i think|in this course we|let me|sorry|without a docstring|best clues)\b|^#|\n\s*[-*] ")
 _HYPE = r"(?:crucial|essential|vital|key|powerful|robust|intricate|seamless|pivotal)"
 _FILLER = [(re.compile(r"(?i)\bplays an? " + _HYPE + r" role in\b"), "handles"),
-           (re.compile(r"(?i)\b(is|are) (?:crucial|essential|vital|key|important|pivotal) (for|to|in)\b"), r"\1 used \2"),
+           (re.compile(r"(?i)\b(provides|offers|has|includes|defines) " + _HYPE + r"\s+"), r"\1 "),
            (re.compile(r"(?i)\b" + _HYPE + r",?\s+and\s+"), ""),
            (re.compile(r"(?i)\b(an?|the|its|their|this) " + _HYPE + r"\s+"), r"\1 "),
            (re.compile(r"(?i)\bwe delve into\b"), "we look at"), (re.compile(r"(?i)\bdelves? into\b"), "covers")]
@@ -72,7 +72,8 @@ def facts_for(course: dict, ch: dict) -> str:
     if ch["kind"] == "trace":
         lines.append("Call path: " + " -> ".join(f"`{x}`" for x in [ch["trace"][0]["caller"]] + [s["callee"] for s in ch["trace"]]))
     for s in ch.get("sections", [])[:6]:
-        lines.append(f"- `{s['symbol']}` ({s['kind']} in `{s['file']}`): {s['lead']}")
+        lead = "" if "without a docstring" in s["lead"] else s["lead"]
+        lines.append(f"- `{s['symbol']}` ({s['kind']} in `{s['file']}`)" + (f": {lead}" if lead else ""))
         for f in s.get("facts", [])[1:3]:
             lines.append(f"    {f}")
     if ch["kind"] == "overview":
@@ -115,6 +116,29 @@ def structure_problems(text: str, course: dict) -> list[str]:
             if cands and not any(x["file"] == full for x in cands):
                 bad.append(f"{name} is not defined in {f}")
     return bad
+
+
+_DROP_SENTENCE = re.compile(r"(?i)\b(?:this|the) chapter\b|\bin (?:this )?chapter\b|^welcome\b|\b(?:is|are) (?:crucial|essential|vital|key|important|pivotal) (?:for|to|in)\b|\bis used for (?:any|every|developers?)\b")
+
+
+def drop_generic(text: str) -> str:
+    """Remove sentences that talk about the chapter instead of the code, or only praise it."""
+    parts = re.split(r"(?<=[.!?])\s+(?=[A-Z`])", text.strip())
+    kept = [p for p in parts if not _DROP_SENTENCE.search(p)]
+    return " ".join(kept).strip()
+
+
+def final_check(text: str, course: dict, allowed: set[str]) -> str | None:
+    """Re-check a stored intro with the current rules; returns the cleaned text or None to rewrite it."""
+    t = drop_generic(polish(text, {}))
+    if len(t) < 40:
+        return None
+    ok, _bad = check(t, allowed)
+    if not ok or structure_problems(t, course):
+        return None
+    if len(set(re.split(r"(?<=[.!?])\s+", t))) < len(re.split(r"(?<=[.!?])\s+", t)):  # repeated sentences
+        return None
+    return t
 
 
 def trim(text: str, max_sentences: int = 4) -> str:
@@ -162,11 +186,15 @@ def narrate_chapter(llm: LLM, course: dict, ch: dict, allowed: set[str]) -> tupl
             msgs.append({"role": "assistant", "content": text})
             msgs.append({"role": "user", "content": "Don't open with 'This chapter' or 'Welcome'. Start with a code name from the facts and say what it does. 2 sentences."})
             continue
+        text = drop_generic(text)
         ok, bad = check(text, allowed)
         if ok:
             bad = structure_problems(text, course)
             if not bad:
-                return text, problems
+                if len(set(re.split(r"(?<=[.!?])\s+", text))) < len(re.split(r"(?<=[.!?])\s+", text)):
+                    bad = ["repeats itself"]
+                else:
+                    return text, problems
             problems.append(f"rejected ({'; '.join(bad[:2])})")
             msgs.append({"role": "assistant", "content": text})
             msgs.append({"role": "user", "content": "That is wrong: " + "; ".join(bad[:3]) +

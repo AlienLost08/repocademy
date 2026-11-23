@@ -91,8 +91,24 @@ def _warm_up():
         pass
 
 
+def _reset_stale_narration():
+    """A restart kills narration threads; let those courses be narrated again instead of 'running' forever."""
+    base = DATA / "courses"
+    if not base.exists():
+        return
+    for f in base.glob("*/course.json"):
+        try:
+            c = json.loads(f.read_text())
+        except ValueError:
+            continue
+        if c.get("narration", {}).get("status") == "running":
+            c["narration"]["status"] = "interrupted"
+            f.write_text(json.dumps(c))
+
+
 @app.on_event("startup")
 def _startup():
+    _reset_stale_narration()
     if os.environ.get("REPOCADEMY_WARMUP", "1") != "0":
         threading.Thread(target=_warm_up, daemon=True).start()
 
@@ -153,13 +169,25 @@ def _run_narration(slug: str):
     if llm is None or p is None or not str(p).startswith(str(DATA)):
         return
     course = json.loads((p / "course.json").read_text())
+    stamp = course.get("generated_at")
+
+    class Superseded(Exception):
+        pass
 
     def save(c):
+        try:  # the course was rebuilt meanwhile: never overwrite the new build with an old one
+            if json.loads((p / "course.json").read_text()).get("generated_at") != stamp:
+                raise Superseded
+        except ValueError:
+            pass
         tmp = p / "course.json.tmp"
         tmp.write_text(json.dumps(c))
         tmp.replace(p / "course.json")
 
-    narrate_course(course, llm, save=save, lock=LLM_LOCK)
+    try:
+        narrate_course(course, llm, save=save, lock=LLM_LOCK)
+    except Superseded:
+        pass
 
 
 @app.post("/api/build")

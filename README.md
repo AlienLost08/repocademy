@@ -26,12 +26,12 @@ for any public repo, for free.
 | | |
 |---|---|
 | ![Overview](docs/screenshots/03-overview.png) | **Overview**: languages, size, layout, outside libraries, how to run it, and quiz warm-ups. |
-| ![Trace](docs/screenshots/04-trace.png) | **Follow one call**: a real path through the code (for requests: `get → request → Session.request → Session.send → HTTPAdapter.send …`), each hop shown at the exact line where it happens. |
+| ![Trace](docs/screenshots/04-trace.png) | **Follow one call**: a real path through the code (requests: `Session.request → Session.send → HTTPAdapter.send …`; axios: `createInstance → Axios.request → Axios._request → dispatchRequest → transformData`), each hop shown at the exact line where it happens. |
 | ![Code](docs/screenshots/05-code-section.png) | **Chapters tied to real code**: every section is a real excerpt with line numbers, a link to that exact commit on GitHub, its callers and callees, and an "Ask about this" button. |
 | ![Bug](docs/screenshots/06-find-the-bug.png) | **Quizzes that grade instantly**: multiple choice ("which file handles X?", "what does Y call?"), order the call path, find the hand-off line, and *find the bug*: we plant one realistic mutation in a real function. |
 | ![Exercise](docs/screenshots/07-exercise.png) | **Try it**: pure functions are extracted with their constants and helpers. You predict the output, then run it in your browser (Pyodide for Python, a Web Worker for JS). Example inputs come from the project's own tests and doctests. |
 | ![Map](docs/screenshots/08-architecture-map.png) | **Architecture map**: every source file sized by lines and coloured by chapter. Toggle call and import edges, highlight the traced path, and click a file to jump to its chapter. |
-| ![Chat](docs/screenshots/10-ask-the-repo.png) | **Ask the repo**: BM25 retrieval over symbol-level chunks, then a local model answers with citations. Any citation that doesn't point inside the retrieved code is removed. |
+| ![Chat](docs/screenshots/10-ask-the-repo.png) | **Ask the repo**: the matching code appears instantly, then a small local model streams a short answer. Caller/callee claims are checked against the static call graph (wrong ones are corrected or dropped) and citations that don't point at real code are removed. |
 
 Progress, XP and quiz answers are saved in your browser (localStorage). No account is needed.
 
@@ -60,9 +60,22 @@ github URL ─▶ shallow clone ─▶ scan ─▶ parse (Python ast / tree-sitt
   and other pure helpers, called with literal arguments taken from the project's tests
   (including expanded `pytest.mark.parametrize`) or doctests. They run **only in the learner's
   browser**. The server never executes code from the repository.
-* **Grounded AI** (`narrate.py`, `ask.py`): the model only sees facts and code excerpts we
-  extracted. A narration is rejected if it names anything (in backticks) that isn't in the
-  repository, and the template stays. Chat citations are checked against the retrieved chunks.
+* **JS/TS entry points** (`repoinfo.py`, `planner.py`): `package.json` `exports`/`module`/`main`/`bin`
+  (with `dist/` mapped back to `src/`/`lib/`), `export { x as default }`, destructured re-exports and
+  the package-named class decide the "front door". Calls through `X.prototype.m`, `fn.call/apply/bind`,
+  `this.field.method()` (typed by the constructor that filled the field) and class fields are resolved.
+* **Retrieval** (`retrieval.py`): hybrid scoring: BM25 over code, plus identifier/qualname coverage,
+  file-name matches ("cookies" → `cookies.py`), light stemming and a small synonym table
+  ("decide which adapter" → `get_adapter`). Tests and README are down-weighted; at most two chunks per file.
+* **Grounded chat** (`ask.py`, `facts.py`): the model gets three focused 16-line excerpts plus
+  call-graph facts ("`Session.get_adapter` is called by `Session.send` [sessions.py:778]"). After it
+  answers, every "X calls Y" / "X is called by Y" / "method of class Z" claim is checked against the
+  graph: wrong ones are rewritten from the graph, unconfirmable ones are dropped, and the UI shows
+  how many were corrected. Answers are cached per commit.
+* **Grounded intros** (`narrate.py`): the model only sees extracted facts. An intro is rejected if it
+  names anything that isn't in the repository, says a class "includes" a method it doesn't have, or
+  says a file "contains" something defined elsewhere. Generic openers ("This chapter covers…") and
+  hype words are rejected or stripped. On rejection the deterministic template stays.
 
 ## Run it
 
@@ -77,7 +90,8 @@ make test                      # pytest
 Optional local model (free, runs on CPU):
 
 ```bash
-ollama pull qwen2.5-coder:3b   # or qwen2.5-coder:1.5b on smaller machines
+ollama pull qwen2.5-coder:1.5b # chat (fast: answers in a few seconds on a laptop CPU)
+ollama pull qwen2.5-coder:3b   # chapter intros (written once, in the background)
 ```
 
 Without a model everything still works: chapters use templates, and the chat returns the most
@@ -89,16 +103,28 @@ relevant code with links instead of a written answer.
 |---|---|---|
 | `REPOCADEMY_DATA` | `./cache` | Where clones and built courses are stored |
 | `REPOCADEMY_OLLAMA_URL` | `http://127.0.0.1:11434` | Ollama server |
-| `REPOCADEMY_OLLAMA_MODEL` | first available of `qwen2.5-coder:3b`, `qwen2.5-coder:1.5b`, `qwen2.5:1.5b`, … | Chat model |
-| `REPOCADEMY_NARRATE_MODEL` | same as chat | Model for chapter intros |
+| `REPOCADEMY_CHAT_MODEL` | first available of `qwen2.5-coder:1.5b`, `qwen2.5-coder:3b`, `qwen2.5:1.5b`, … | Chat model |
+| `REPOCADEMY_NARRATE_MODEL` | first available of `qwen2.5-coder:3b`, `qwen2.5-coder:1.5b`, … | Model for chapter intros |
+| `REPOCADEMY_OLLAMA_MODEL` | unset | Use one model for both |
+| `REPOCADEMY_WARMUP` | `1` | Load the chat model at server start so the first question is fast |
 | `REPOCADEMY_LLM_BASE_URL`, `REPOCADEMY_LLM_API_KEY`, `REPOCADEMY_LLM_MODEL` | unset | Any OpenAI-compatible endpoint (for example a free tier). Falls back to Ollama, then templates. |
 | `REPOCADEMY_LLM` | on | `off` = never call a model |
 | `REPOCADEMY_AUTO_NARRATE` | `1` | Narrate new courses in the background after building |
 
 ### Showcase courses
 
-`showcase/` ships pre-built courses for **psf/requests**, **pallets/flask** and **expressjs/express**
-(chapter intros written by `qwen2.5-coder:3b` and fact-checked), so a demo opens instantly. Rebuild them with `make showcase` (needs network).
+`showcase/` ships pre-built courses for **psf/requests**, **pallets/flask**, **expressjs/express** and
+**axios/axios** (chapter intros written by `qwen2.5-coder:3b` and fact-checked), so a demo opens instantly.
+Rebuild them with `make showcase` (needs network; add `--renarrate` to rewrite the intros).
+
+## Measuring it
+
+* `python eval/retrieval_eval.py`: 26 hand-written questions over requests, flask, express and axios,
+  each with the symbols/files that actually answer it.
+* `python eval/chat_eval.py`: asks 8 questions through the real chat pipeline and prints time to
+  first token, total time and the graph corrections.
+* `python scripts/verify_repos.py owner/repo …`: builds courses through the running server and
+  prints the front door, the trace and the quiz/exercise counts.
 
 ## Safety
 
