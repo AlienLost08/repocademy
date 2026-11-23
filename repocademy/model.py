@@ -28,6 +28,9 @@ class Symbol:
     calls: list[CallSite] = field(default_factory=list)
     parent: str | None = None  # class symbol id for methods
     exported: bool = False
+    # local variable -> constructor/class name it was built from (`x = Foo()`, `const x = new Foo()`);
+    # on classes, keys like "self.adapter" / "this.router" record field types set in methods
+    types: dict[str, str] = field(default_factory=dict)
 
     @property
     def loc(self) -> int:
@@ -62,3 +65,4 @@ class Module:
     is_main: bool = False  # has `if __name__ == "__main__"` or a shebang
     todos: list[tuple[int, str]] = field(default_factory=list)
     role: str = "source"  # source | test | example | docs | config
+    values: dict[str, str] = field(default_factory=dict)  # top-level `const x = make(...)` -> "make"

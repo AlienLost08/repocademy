@@ -80,10 +80,57 @@ def _calls(body: Node | None) -> list[CallSite]:
             fn = n.child_by_field_name("function") or n.child_by_field_name("constructor")
             if fn is not None:
                 name = _call_text(fn)
+                # fn.call(ctx, …) / fn.apply(ctx, …) invoke fn itself
+                if name.count(".") >= 1 and name.rsplit(".", 1)[1] in ("call", "apply", "bind") and not name.startswith("?"):
+                    name = name.rsplit(".", 1)[0].replace(".prototype.", ".")
                 if name and name != "require":
                     out.append(CallSite(name, n.start_point[0] + 1, err))
+        elif n.type == "member_expression" and ".prototype." in _t(n) and n.parent is not None and n.parent.type != "member_expression":
+            # `bind(Axios.prototype.request, ctx)`: a method handed over to be called later
+            txt = _call_text(n)
+            if txt and not txt.startswith("?"):
+                out.append(CallSite(txt.replace(".prototype.", "."), n.start_point[0] + 1, err))
         stack.extend((c, err) for c in reversed(n.named_children))
     out.sort(key=lambda c: c.line)
+    return out
+
+
+def _new_name(v: Node | None) -> str | None:
+    """`new Foo(...)` -> "Foo"; `await new Foo()` too."""
+    while v is not None and v.type in ("await_expression", "parenthesized_expression", "as_expression", "non_null_expression"):
+        v = v.named_children[0] if v.named_children else None
+    if v is not None and v.type == "new_expression":
+        c = v.child_by_field_name("constructor")
+        if c is not None:
+            name = _call_text(c)
+            return name or None
+    return None
+
+
+def _local_types(body: Node | None) -> dict[str, str]:
+    out: dict[str, str] = {}
+    if body is None:
+        return out
+    stack = [body]
+    while stack:
+        n = stack.pop()
+        if n.type in ("class_declaration", "class"):
+            continue
+        if n.type == "variable_declarator":
+            nm, val = n.child_by_field_name("name"), n.child_by_field_name("value")
+            ctor = _new_name(val)
+            if ctor and nm is not None and nm.type == "identifier":
+                out.setdefault(_t(nm), ctor)
+        elif n.type == "assignment_expression":
+            left, right = n.child_by_field_name("left"), n.child_by_field_name("right")
+            ctor = _new_name(right)
+            if ctor and left is not None:
+                lt = _t(left)
+                if lt.startswith("this.") and lt.count(".") == 1:
+                    out.setdefault(lt, ctor)
+                elif left.type == "identifier":
+                    out.setdefault(lt, ctor)
+        stack.extend(n.named_children)
     return out
 
 
@@ -144,8 +191,13 @@ def analyze_js(path: str, text: str, lang: str = "javascript") -> Module:
         sym = Symbol(id=f"{path}::{qual}", name=name, qualname=qual, kind=kind, file=path,
                      start=doc_node.start_point[0] + 1 if doc_node.type == "export_statement" else node.start_point[0] + 1,
                      end=node.end_point[0] + 1, signature=sig, doc=_doc_before(doc_node), bases=bases or [],
-                     calls=_calls(body) if kind != "class" else [], parent=parent.id if parent else None)
+                     calls=_calls(body) if kind != "class" else [], parent=parent.id if parent else None,
+                     types=_local_types(body) if kind != "class" else {})
         mod.symbols.append(sym)
+        if parent is not None:  # this.router = new Router() -> field type on the class
+            for k, v in sym.types.items():
+                if k.startswith("this."):
+                    parent.types.setdefault(k, v)
         return sym
 
     def add_class(node: Node, doc_node: Node, exported: bool):
@@ -165,6 +217,17 @@ def analyze_js(path: str, text: str, lang: str = "javascript") -> Module:
             if m.type == "method_definition":
                 mname = _t(m.child_by_field_name("name"))
                 add_symbol(mname, f"{name}.{mname}", "method", m, m, m, parent=cls)
+            elif m.type in ("field_definition", "public_field_definition"):
+                prop = m.child_by_field_name("property") or m.child_by_field_name("name")
+                val = m.child_by_field_name("value")
+                if prop is not None and val is not None:
+                    if val.type in ("arrow_function", "function_expression"):
+                        mname = _t(prop)
+                        add_symbol(mname, f"{name}.{mname}", "method", m, val, m, parent=cls)
+                    else:
+                        ctor = _new_name(val)
+                        if ctor:
+                            cls.types.setdefault("this." + _t(prop), ctor)
         return cls
 
     def handle_decl(node: Node, doc_node: Node, exported: bool):
@@ -201,6 +264,11 @@ def analyze_js(path: str, text: str, lang: str = "javascript") -> Module:
                     src = _require_of(val.child_by_field_name("object"))
                     mod.imports.append(Import(module=src, names=[(_t(val.child_by_field_name("property")), _t(nm))], line=d.start_point[0] + 1))
                     continue
+                if nm is not None and nm.type == "identifier" and val is not None and val.type in ("call_expression", "new_expression"):
+                    callee = val.child_by_field_name("function") or val.child_by_field_name("constructor")
+                    ct = _call_text(callee) if callee is not None else ""
+                    if ct:
+                        mod.values.setdefault(_t(nm), ct)
                 if nm is not None and nm.type == "identifier" and val is not None:
                     if val.type in _FUNC_TYPES:
                         s = add_symbol(_t(nm), _t(nm), "function", node if len(node.named_children) == 1 else d, val, doc_node)

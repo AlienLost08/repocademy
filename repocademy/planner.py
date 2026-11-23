@@ -5,6 +5,7 @@ Everything here is deterministic: the same commit always produces the same cours
 
 from __future__ import annotations
 
+import math
 import posixpath
 import random
 import re
@@ -86,6 +87,102 @@ class Planner:
                 c[m.dotted.split(".")[0]] += m.lines
         return c.most_common(1)[0][0] if c else None
 
+    def _js_source_for(self, target: str) -> str | None:
+        """Map a package.json target (often a build output like dist/index.js) back to a source file."""
+        g = self.g
+        t = posixpath.normpath(target)
+        stem, ext = posixpath.splitext(t)
+        exts = [".js", ".ts", ".mjs", ".cjs", ".tsx", ".jsx", ".mts"]
+        dirs = stem.split("/")
+        variants = [stem]
+        if len(dirs) > 1 and dirs[0] in ("dist", "distribution", "build", "out", "lib", "esm", "cjs", "umd", "es"):
+            rest = "/".join(dirs[1:])
+            for sub in ("esm", "cjs", "node", "browser", "umd", "es"):
+                if rest.startswith(sub + "/"):
+                    rest = rest[len(sub) + 1:]
+            for root in ("src", "source", "lib", ""):
+                variants.append(f"{root}/{rest}".lstrip("/"))
+        for v in variants:
+            for e in ([ext] if ext else []) + exts:
+                if v + e in g.modules:
+                    return v + e
+            for e in exts:
+                if f"{v}/index{e}" in g.modules:
+                    return f"{v}/index{e}"
+        return None
+
+    def _js_entry(self, syms: list[Symbol], files: list[str]) -> tuple[list[Symbol], list[str]]:
+        g = self.g
+        targets = list(self.man.get("js_entries") or [])
+        if self.man.get("main"):
+            targets.append(self.man["main"].lstrip("./"))
+        targets += ["index.js", "index.ts", "src/index.ts", "src/index.js", "source/index.ts", "source/index.js",
+                    "lib/index.js", "lib/index.ts", "src/main.ts", "main.js"]
+        start = []
+        for t in targets:
+            p = self._js_source_for(t) if t not in g.modules else t
+            if p and p not in start and g.modules[p].role == "source":
+                start.append(p)
+            if len(start) >= 2:
+                break
+
+        self._primary = set()
+
+        def add_symbol_id(sid, primary=False):
+            if sid in g.symbols:
+                syms.append(g.symbols[sid])
+                if primary:
+                    self._primary.add(sid)
+                # `axios.all = function …` members of the exported object are part of the API too
+                pre = g.symbols[sid].qualname + "."
+                for x in g.modules[g.symbols[sid].file].symbols:
+                    if x.qualname.startswith(pre) and x.parent is None and x.public:
+                        syms.append(x)
+
+        def visit(path, depth=0):
+            if depth > 4 or path in files:
+                return
+            files.append(path)
+            m = g.modules[path]
+            fwd = next((i for i in m.imports if i.alias == "module.exports" and i.resolved), None)
+            if fwd:  # index.js: module.exports = require('./lib/x')
+                visit(fwd.resolved, depth + 1)
+                return
+            names = ([m.default_export] if m.default_export else []) + list(m.exports)
+            for n in names:
+                sid = f"{path}::{n}"
+                is_default = n == m.default_export
+                if sid in g.symbols:
+                    add_symbol_id(sid, is_default)
+                    continue
+                if n in m.values:  # const axios = createInstance(defaults); export default axios
+                    r = g.lookup(path, m.values[n].split(".")[0]) if g.lookup else None
+                    if r and r[0] == "symbol":
+                        add_symbol_id(r[1], is_default)
+                    for x in m.symbols:  # axios.all = function …
+                        if x.qualname.startswith(n + ".") and x.parent is None and x.public:
+                            syms.append(x)
+                    continue
+                r = g.lookup(path, n) if g.lookup else None
+                if r and r[0] == "symbol":
+                    add_symbol_id(r[1], is_default)
+                elif r and r[0] == "module" and n == m.default_export:
+                    visit(r[1], depth + 1)
+            for imp in m.imports:  # export * from './x'
+                if imp.resolved and imp.names == [("*", "*")]:
+                    visit(imp.resolved, depth + 1)
+
+        for p in start:
+            visit(p)
+        # thin front door (a single factory): add the busiest public pieces of the modules it wires together
+        uniq = {s.id for s in syms}
+        if len(uniq) < 4 and files:
+            near = {dst for src, dst, _ in g.imports if src in files and g.modules[dst].role == "source"}
+            extra = [s for s in self.ranked if s.file in near and s.public and s.id not in uniq and s.kind != "class" or
+                     (s.file in near and s.kind == "class" and s.id not in uniq)]
+            syms.extend(extra[: 6 - len(uniq)])
+        return syms, files
+
     def entry_symbols(self) -> tuple[list[Symbol], list[str], str]:
         """(front-door symbols, entry files, how we found them)"""
         g = self.g
@@ -113,30 +210,12 @@ class Planner:
                         syms.append(g.symbols[sid])
                         files.append(path)
         else:
-            main = self.man.get("main") or "index.js"
-            main = posixpath.normpath(main.lstrip("./")) if main else "index.js"
-            cand = [main, main + ".js", main + "/index.js", "index.js", "src/index.js", "src/index.ts", "lib/index.js"]
-            path = next((c for c in cand if c in g.modules), None)
-            seen = set()
-            while path and path not in seen:
-                seen.add(path)
-                files.append(path)
-                m = g.modules[path]
-                fwd = next((i for i in m.imports if i.alias == "module.exports" and i.resolved), None)
-                if fwd:  # index.js: module.exports = require('./lib/x')
-                    path = fwd.resolved
-                    continue
-                if m.default_export and f"{path}::{m.default_export}" in g.symbols:
-                    syms.append(g.symbols[f"{path}::{m.default_export}"])
-                for e in m.exports:
-                    sid = f"{path}::{e}"
-                    if sid in g.symbols:
-                        syms.append(g.symbols[sid])
-                break
+            syms, files = self._js_entry(syms, files)
             how = f"what `{files[0]}` exports" if files else ""
         # de-duplicate, rank, keep public
         out, seen_ids = [], set()
-        for s in sorted(syms, key=lambda s: -g.rank.get(s.id, 0)):
+        primary = getattr(self, "_primary", set())
+        for s in sorted(syms, key=lambda s: (s.id not in primary, -g.rank.get(s.id, 0))):
             if s.id not in seen_ids:
                 seen_ids.add(s.id)
                 out.append(s)
@@ -164,8 +243,28 @@ class Planner:
             memo[sid] = best
             return best
 
+        reach_memo: dict[str, int] = {}
+
+        def reach(sid: str) -> int:
+            """How much of the codebase sits downstream (3 hops, happy path): orchestrators beat leaf utilities."""
+            if sid in reach_memo:
+                return reach_memo[sid]
+            seen_r, frontier = {sid}, [sid]
+            for _ in range(3):
+                nxt = []
+                for x in frontier:
+                    for e in g.callees(x):
+                        if e.error_path or e.dst in seen_r or g.modules[g.symbols[e.dst].file].role != "source":
+                            continue
+                        seen_r.add(e.dst)
+                        nxt.append(e.dst)
+                frontier = nxt
+            reach_memo[sid] = len(seen_r) - 1
+            return reach_memo[sid]
+
         cands = []
         entry_ids = {s.id for s in starts}
+        primary = getattr(self, "_primary", set())
         pool_syms = list(starts[:8]) + [s for s in self.ranked[:12] if s.id not in entry_ids]
         for s in pool_syms:
             pool = [s] + (self.children(s) if s.kind == "class" else [])
@@ -173,11 +272,12 @@ class Planner:
                 if p.name.startswith("_") and p.name != "__call__":
                     continue
                 bonus = 1.0 if p.id in entry_ids and p.kind == "function" else (0.4 if s.id in entry_ids else 0)
+                bonus += 1.5 if p.id in primary else 0
                 cands.append((depth(p.id, frozenset([p.id]), 0), g.rank.get(p.id, 0) + bonus / 3, p))
         if not cands:
             return []
         # a good story: deep enough to cross the architecture, starting from something important
-        cands.sort(key=lambda x: -(min(x[0], 5) + x[1] * 3 + (1.5 if x[0] >= 3 else 0)))
+        cands.sort(key=lambda x: -(min(x[0], 5) + x[1] * 3 + (1.5 if x[0] >= 3 else 0) + 0.5 * math.log2(1 + reach(x[2].id))))
         cur = cands[0][2]
         steps, seen = [], {cur.id}
         for _ in range(max_hops):
@@ -187,8 +287,12 @@ class Planner:
                 if e.dst in seen or g.modules[dst.file].role != "source" or dst.kind == "class":
                     continue
                 dd = memo.get(e.dst, depth(e.dst, frozenset(seen | {e.dst}), 0))
-                score = g.rank.get(e.dst, 0) * 3 + min(dd, 3) * 0.7 + dst.loc / 120 - (0.15 if e.weak else 0)
-                score += 0.5 if dst.file != cur.file else 0  # prefer hops that move through the architecture
+                score = g.rank.get(e.dst, 0) * 3 + min(dd, 3) * 0.7 + dst.loc / 120 - (0.35 if e.weak else 0)
+                score += 0.6 * math.log2(1 + reach(e.dst))  # follow the flow, not the helper everybody calls
+                score -= 0.06 * min(len(g.callers(e.dst)), 20)
+                if re.match(r"^_?(is|has|assert|validate|ensure|check|to)[A-Z_]", dst.name) and dst.loc < 25:
+                    score -= 1.0  # small predicates/validators are detours, not the story
+                score += 1.0 if dst.file != cur.file else 0  # prefer hops that move through the architecture
                 score -= 0.6 if not dst.public else 0
                 score -= 2.0 if e.error_path else 0  # follow the happy path, not error handling
                 opts.append((score, e, dst))
@@ -198,6 +302,8 @@ class Planner:
             _, e, dst = opts[0]
             if e.error_path and len(steps) >= 2:
                 break  # only error handling left: the happy path ends here
+            if e.weak and len(steps) >= 3:
+                break  # don't end a good story on a guess
             src = self.lines(cur.file)
             steps.append({"caller": cur.qualname, "caller_id": cur.id, "callee": dst.qualname, "callee_id": dst.id,
                           "file": cur.file, "line": e.line, "code_line": src[e.line - 1] if e.line <= len(src) else "",

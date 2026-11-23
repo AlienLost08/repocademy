@@ -287,16 +287,42 @@ def build_graph(modules: list[Module]) -> RepoGraph:
                 return None
         return head
 
+    def class_of(path: str, ctor: str) -> str | None:
+        r = resolve_name(path, ctor)
+        if r and r[0] == "symbol" and syms[r[1]].kind == "class":
+            return r[1]
+        return None
+
+    def typed_receiver(s: Symbol, cls: Symbol | None, parts: list[str]) -> str | None:
+        """Resolve `x.m()` when `x = Foo()` / `new Foo()` earlier, and `self.x.m()` when the class set `self.x = Foo()`."""
+        if len(parts) == 2 and parts[0] in s.types:
+            cid = class_of(s.file, s.types[parts[0]])
+            return method_of(cid, parts[1]) if cid else None
+        if len(parts) == 3 and parts[0] in ("self", "this") and cls is not None:
+            key = f"{parts[0]}.{parts[1]}"
+            c, seen = cls, set()
+            while c is not None and c.id not in seen:  # field may be set in a base class
+                seen.add(c.id)
+                if key in c.types:
+                    cid = class_of(c.file, c.types[key])
+                    return method_of(cid, parts[2]) if cid else None
+                base = next((resolve_name(c.file, b.split("[")[0]) for b in c.bases), None)
+                c = syms.get(base[1]) if base and base[0] == "symbol" else None
+        return None
+
     for s in syms.values():
         m = mods[s.file]
         cls = syms.get(s.parent) if s.parent else None
         obj_prefix = s.qualname.rsplit(".", 1)[0] if ("." in s.qualname and s.parent is None) else None
-        seen_dst = set()
+        seen_dst: dict[str, Edge] = {}
         for c in s.calls:
             dst = None
             weak = False
             parts = c.name.split(".")
-            if parts[0] in ("self", "this", "cls") and len(parts) == 2:
+            typed = typed_receiver(s, cls, parts)
+            if typed:
+                dst = typed
+            elif parts[0] in ("self", "this", "cls") and len(parts) == 2:
                 if cls is not None:
                     dst = method_of(cls.id, parts[1])
                 elif obj_prefix:
@@ -325,18 +351,26 @@ def build_graph(modules: list[Module]) -> RepoGraph:
                     best = None
                     for cid, cs in syms.items():
                         if cs.kind == "class" and mods[cs.file].role == "source" and (cs.name.lower() == recv or cs.name.lower().endswith(recv)):
-                            mid = f"{cid}.{parts[1]}"
-                            if mid in syms and (best is None or syms[mid].loc > syms[best].loc):
-                                best = mid
+                            mid = method_of(cid, parts[1])
+                            exact = cs.name.lower() == recv
+                            if mid and (best is None or (exact, syms[mid].loc) > best[1]):
+                                best = (mid, (exact, syms[mid].loc))
+                    exact_hit = bool(best and best[1][0])
+                    best = best[0] if best else None
                     if best and best != s.id:
-                        dst, weak = best, True
+                        dst, weak = best, not exact_hit  # `signer.unsign()` with a class named Signer is a safe bet
             if dst is None and len(parts) >= 2 and parts[-1] not in COMMON and len(parts[-1]) >= 4:
                 cands = [x for x in methods_by_name.get(parts[-1], []) if x != s.id]
                 if len(cands) == 1 and (parts[0] in ("self", "this", "?") or lookup_in(s.file, parts[0]) is None or lookup_in(s.file, parts[0])[0] != "ext"):
                     dst, weak = cands[0], True
-            if dst and dst != s.id and dst not in seen_dst:
-                seen_dst.add(dst)
-                g.calls.append(Edge(s.id, dst, c.line, weak, c.error_path))
+            if dst and dst != s.id:
+                if dst not in seen_dst:
+                    seen_dst[dst] = Edge(s.id, dst, c.line, weak, c.error_path)
+                    g.calls.append(seen_dst[dst])
+                else:  # prefer the happy-path / strongly-resolved call site for the hand-off line
+                    e0 = seen_dst[dst]
+                    if (e0.error_path and not c.error_path) or (e0.weak and not weak):
+                        e0.line, e0.error_path, e0.weak = c.line, e0.error_path and c.error_path, e0.weak and weak
         if s.kind == "class":
             for b in s.bases:
                 r = resolve_name(s.file, b.split("[")[0])

@@ -78,6 +78,46 @@ def usage_example(text: str, lang: str) -> tuple[str, int] | None:
     return None
 
 
+def _flatten_exports(e, out: list[str]) -> None:
+    """Collect file targets from a package.json `exports` value, best conditions first, skipping type files."""
+    if isinstance(e, str):
+        if not e.endswith((".d.ts", ".d.cts", ".d.mts", ".json")):
+            out.append(e)
+    elif isinstance(e, list):
+        for x in e:
+            _flatten_exports(x, out)
+    elif isinstance(e, dict):
+        keys = list(e)
+        if any(k.startswith(".") for k in keys):  # subpath map: the package root first
+            if "." in e:
+                _flatten_exports(e["."], out)
+            return
+        order = ["source", "development", "import", "module", "node", "default", "require", "browser"]
+        for k in sorted(keys, key=lambda k: order.index(k) if k in order else 50):
+            if k != "types":
+                _flatten_exports(e[k], out)
+
+
+def js_entries(d: dict) -> list[str]:
+    """Entry files a package declares: exports, module, main, bin (in that order), de-duplicated."""
+    out: list[str] = []
+    for key in ("source", "exports", "module", "main", "browser", "bin"):
+        v = d.get(key)
+        if key == "bin" and isinstance(v, dict):
+            out.extend(x for x in v.values() if isinstance(x, str))
+        elif key == "browser" and not isinstance(v, str):
+            continue
+        else:
+            _flatten_exports(v, out)
+    seen, res = set(), []
+    for x in out:
+        x = x.lstrip("./") if x.startswith("./") else x
+        if x and x not in seen and "*" not in x:
+            seen.add(x)
+            res.append(x)
+    return res
+
+
 def manifests(root: Path) -> dict:
     info: dict = {"name": "", "description": "", "dependencies": [], "dev_dependencies": [], "scripts": {}, "entry": [],
                   "main": None, "bin": {}, "test_command": None, "test_framework": None, "license": None}
@@ -124,6 +164,7 @@ def manifests(root: Path) -> dict:
             elif isinstance(e, str):
                 main = main or e
         info["main"] = main
+        info["js_entries"] = js_entries(d)
         b = d.get("bin")
         info["bin"] = {info["name"] or "cli": b} if isinstance(b, str) else (b or {})
         if "test" in info["scripts"]:
