@@ -33,6 +33,9 @@ for any public repo, for free.
 | ![Map](docs/screenshots/08-architecture-map.png) | **Architecture map**: every source file sized by lines and coloured by chapter. Toggle call and import edges, highlight the traced path, and click a file to jump to its chapter. |
 | ![Chat](docs/screenshots/10-ask-the-repo.png) | **Ask the repo**: the matching code appears instantly, then a small local model streams a short answer. Caller/callee claims are checked against the static call graph (wrong ones are corrected or dropped) and citations that don't point at real code are removed. |
 
+| ![Axios](docs/screenshots/11-axios-trace.png) | **JavaScript too**: the axios course finds `createInstance` from `package.json` and follows prototype calls into `Axios._request` and `dispatchRequest`. |
+| ![Light](docs/screenshots/12-light-mode.png) | **Light and dark**, and a phone layout ([mobile screenshot](docs/screenshots/13-mobile.png)). |
+
 Progress, XP and quiz answers are saved in your browser (localStorage). No account is needed.
 
 ## How it works
@@ -141,10 +144,14 @@ Rebuild them with `make showcase` (needs network; add `--renarrate` to rewrite t
 * Call resolution is static and heuristic. Dynamic dispatch (plugin registries, `getattr`,
   computed property names) is missed, and some edges are guesses (matched by name). In the trace, those
   hops are labelled "resolved by name". On some JS codebases the trace picks a less interesting path.
-* Exercises only exist where a function is pure and the tests call it with literal arguments,
-  so some repos get one or none.
-* Small local models (1.5B–3B) write decent intros but sometimes answer chat questions vaguely.
-  Citations are verified, but the prose is not.
+* Exercises only exist where a function is pure and the tests (or the source) call it with literal
+  arguments, so some repos get one or none.
+* Small local models (1.5B–3B) write decent intros but sometimes answer chat questions wrongly.
+  Caller/callee and "method of" claims are checked against the call graph and citations are
+  verified, but other statements (what a branch does, which type is set) are not. In our 8-question
+  chat check, about 5 answers were fully right; the rest were partly wrong or off-topic.
+* Exercises: JavaScript repos whose tests only go through HTTP or the public object (express,
+  chalk) get few or no runnable exercises.
 * Python exercises need internet on first use to load Pyodide from the CDN.
 
 ## Project layout

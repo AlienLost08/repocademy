@@ -34,30 +34,38 @@ Paste any public GitHub URL. Repocademy:
    taken from the project's own tests. You predict the output first.
 6. **Shows an interactive architecture map** (D3): toggle calls and imports, see the traced path,
    and click a file to jump to its chapter.
-7. **Answers questions about the repo**: retrieval over the code, then a local model answers
-   with `file:line` citations. Citations that don't point inside retrieved code are removed.
+7. **Answers questions about the repo**: the matching code appears instantly, then a small local
+   model streams a short answer with `file:line` citations. The prompt includes call-graph facts
+   ("X is called by Y at line N"), and afterwards every caller/callee claim in the answer is
+   checked against the graph: wrong ones are corrected or dropped, and the UI says how many.
+   Citations that don't point at real code are removed.
 8. **Tracks progress** with XP, a progress ring and a finish screen, all stored locally.
 
 ## How we built it
 
 * **Backend:** Python + FastAPI. Python is parsed with the `ast` module; JavaScript and
   TypeScript with tree-sitter. A resolver links imports (relative, dotted, `src/` layouts,
-  re-exports, `module.exports`) and calls (`self`/`this`, imported names, `module.attr`,
-  inherited methods, and a few labelled heuristics). Calls inside `except`/`catch` are tagged,
-  so the trace follows the happy path.
+  re-exports, `module.exports`, `export { x as default }`) and calls (`self`/`this`, imported
+  names, `module.attr`, inherited methods, `X.prototype.m`, `fn.call/bind`, and fields typed by the
+  constructor that filled them, e.g. `self.adapter = HTTPAdapter()`). JS entry points come from
+  `package.json` (`exports`, `main`, `bin`, with `dist/` mapped back to source). Calls inside
+  `except`/`catch` are tagged, so the trace follows the happy path.
+* **Retrieval:** hybrid scoring: BM25 plus identifier and file-name matching, light stemming and a
+  small synonym table, so "how are cookies stored" finds `cookies.py`.
 * **Planner:** deterministic. Chapters, quizzes, distractors, bug mutations and exercises all come
   from graph facts, so every answer key is correct by construction.
-* **AI, kept honest:** local open-weight models through Ollama (we used `qwen2.5-coder` 1.5B/3B
-  on CPU), or any OpenAI-compatible endpoint via environment variables, with graceful fallback
-  to templates. The model writes short chapter intros from extracted facts only. An intro is
-  rejected if it names a symbol that doesn't exist in the repo. Chat citations are validated
-  against the retrieved chunks.
+* **AI, kept honest:** local open-weight models through Ollama (`qwen2.5-coder:1.5b` for chat so it
+  answers in seconds on a CPU, `qwen2.5-coder:3b` for intros written once in the background), or
+  any OpenAI-compatible endpoint via environment variables, with graceful fallback to templates.
+  The model writes short chapter intros from extracted facts only. An intro is rejected if it
+  names a symbol that doesn't exist in the repo or says a class has a method it doesn't have.
+  Chat answers are post-checked against the call graph and their citations validated.
 * **Frontend:** a dependency-free single-page app (vanilla JS, D3, highlight.js, vendored fonts)
-  with a dark glass design.
+  with a dark glass design, a light mode, and a phone layout.
 * **Safety:** GitHub URLs only, shallow clones with symlinks/hooks/submodules/LFS disabled, a
   size cap, and **no repository code is ever executed on the server**.
-* **Caching:** courses are cached per commit SHA, and three showcase courses (requests, flask,
-  express) ship pre-built.
+* **Caching:** courses are cached per commit SHA, and four showcase courses (requests, flask,
+  express, axios) ship pre-built.
 
 ## Challenges we ran into
 
@@ -69,6 +77,9 @@ Paste any public GitHub URL. Repocademy:
 * JavaScript export patterns (`exports = module.exports = createApplication`, prototype
   assignment, re-export chains) each needed handling.
 * Bug mutations must be fair: never inside docstrings or strings, and the mutated code must still parse.
+* A 1.5B model is fast enough for chat but happily says "X is called by Y" when it isn't. Instead
+  of a bigger, slower model we check those claims against the static call graph after the answer
+  is written.
 
 ## Accomplishments we're proud of
 
@@ -84,6 +95,8 @@ Paste any public GitHub URL. Repocademy:
 
 ## What's next
 
+* Better answers for "how does X work" questions that span several functions (the small model
+  still gets some of these wrong where the graph can't check the claim).
 * More languages (Go, Rust, Java) through more tree-sitter grammars.
 * Courses for a chosen subsystem or pull request ("teach me this PR").
 * Shareable course links and classroom mode for maintainers onboarding contributors.

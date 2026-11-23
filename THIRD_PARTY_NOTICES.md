@@ -16,5 +16,5 @@ Python dependencies (installed from PyPI, not vendored): FastAPI, Uvicorn, Pydan
 py-tree-sitter, tree-sitter-javascript and tree-sitter-typescript (all MIT).
 
 Courses in `showcase/` quote short excerpts of the open-source projects they teach:
-psf/requests (Apache-2.0), pallets/flask (BSD-3-Clause) and expressjs/express (MIT).
+psf/requests (Apache-2.0), pallets/flask (BSD-3-Clause), expressjs/express (MIT) and axios/axios (MIT).
 Every excerpt links back to the exact commit it came from.

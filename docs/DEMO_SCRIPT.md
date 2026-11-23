@@ -1,6 +1,7 @@
 # Repocademy: demo script (about 2.5 minutes)
 
-**Setup before recording:** `make dev` with Ollama running (`qwen2.5-coder:3b`). Open
+**Setup before recording:** `make dev` with Ollama running (`qwen2.5-coder:1.5b` for chat,
+`qwen2.5-coder:3b` for intros; the server loads the chat model at start). Open
 http://127.0.0.1:8800 in a clean browser profile (or run `localStorage.clear()` in the console).
 Zoom the browser to 110% so code is readable. Pre-load one Python exercise once so Pyodide is
 cached and doesn't stall on camera. Keep a second tab with the requests repo on GitHub.
@@ -23,7 +24,8 @@ cached and doesn't stall on camera. Keep a second tab with the requests repo on 
 > "Paste a link. It clones the repo, parses every file with real static analysis (Python's AST and
 > tree-sitter for JavaScript and TypeScript), maps what calls what, and plans a course."
 >
-> *[The pipeline ticks through clone → parse → map → plan in a few seconds.]*
+> *[The progress bar fills while the counters tick up: files parsed, functions & classes, call edges,
+> quiz questions.]*
 >
 > "That took seconds, on a laptop CPU, with no paid API."
 
@@ -33,8 +35,12 @@ cached and doesn't stall on camera. Keep a second tab with the requests repo on 
 > We start with the big picture: layout, dependencies, how to run it."
 >
 > *[Click "Follow one call".]* "This is my favourite part. It follows one real call through the
-> code: `requests.get` → `Session.request` → `Session.send` → `HTTPAdapter.send`. Every hop
-> shows the exact line where the hand-off happens, linked to that commit on GitHub."
+> code: `Session.request` → `Session.send` → `HTTPAdapter.send` → … Every hop shows the exact
+> line where the hand-off happens, linked to that commit on GitHub."
+>
+> *[5-second cut to the axios showcase trace.]* "Same for JavaScript: axios goes
+> `createInstance` → `Axios.request` → `Axios._request` → `dispatchRequest`, found from
+> `package.json` and the prototype calls, not guessed."
 >
 > *[Open a module chapter, scroll a code section.]* "Every section is real code with real line
 > numbers, plus who calls it and what it calls."
@@ -56,8 +62,10 @@ cached and doesn't stall on camera. Keep a second tab with the requests repo on 
 >
 > *[Open chat. Ask: "How does a Session pick the adapter for a URL?"]*
 >
-> "And you can ask the repo. It searches the code first, then a small local model answers.
-> Every citation is checked: if it doesn't point at code we actually retrieved, it's removed."
+> "And you can ask the repo. The matching code shows up instantly, then a small local model
+> streams a short answer. Every 'X calls Y' claim is checked against the call graph: wrong ones
+> get corrected or dropped, and citations that don't point at real code are removed. That's the
+> green 'graph-checked' badge."
 >
 > *[Click a citation chip → GitHub opens at that line.]*
 
@@ -75,4 +83,8 @@ cached and doesn't stall on camera. Keep a second tab with the requests repo on 
   map while it streams, and switch back.
 * Don't claim speed numbers you didn't measure on the recording machine. Showing the timer in
   the build overlay is enough.
-* Have the `express` showcase ready to show that JavaScript works too (a 5-second cut is enough).
+* Have the `axios` or `express` showcase ready to show that JavaScript works too (a 5-second cut is enough).
+* Optional flourish: toggle light mode (☀ in the top bar) or show the phone layout (devtools device mode).
+* Ask the chat question from the script once before recording: answers are cached, so the
+  on-camera one is instant and already checked. Re-read it on camera before trusting it: the
+  small model can still be wrong about details the graph can't check.
