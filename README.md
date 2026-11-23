@@ -85,6 +85,7 @@ github URL ─▶ shallow clone ─▶ scan ─▶ parse (Python ast / tree-sitt
 Requirements: Python 3.10+, git. Optional: [Ollama](https://ollama.com) for AI narration and chat.
 
 ```bash
+git clone https://github.com/AlienLost08/repocademy && cd repocademy
 make setup                     # creates .venv and installs requirements-dev.txt
 make dev                       # http://127.0.0.1:8800
 make test                      # pytest
@@ -165,6 +166,14 @@ scripts/      build_showcase.py, screenshots.py
 tests/        pytest suite on tiny fixture repos (no network)
 docs/         demo script, Devpost write-up, screenshots
 ```
+
+## AI assistance disclosure
+
+Built by Satyam Kumar with heavy AI coding assistance. An AI coding agent wrote most of the code,
+tests and documentation in this repository, working from Satyam's direction. Satyam chose the idea and
+its direction, set the requirements (free, local-first, no invented numbers), tested the app and
+reviewed the results. Separately, the app itself uses small local open-weight models
+(`qwen2.5-coder` 1.5B/3B via Ollama) at runtime for chapter intros and chat answers, as described above in "How it works".
 
 ## License
 

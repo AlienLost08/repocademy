@@ -5,7 +5,7 @@
 **Tagline:** Paste a GitHub link, get a guided course on that codebase: chapters, a live
 architecture map, instant quizzes and a chat that cites file:line.
 
-**Links:** GitHub: `[REPO URL]` · Demo video: `[VIDEO URL]`
+**Links:** GitHub: https://github.com/AlienLost08/repocademy · Demo video: `[VIDEO URL]`
 
 ## Inspiration
 
@@ -115,6 +115,8 @@ python, fastapi, tree-sitter, ast, d3.js, highlight.js, pyodide, ollama, qwen2.5
 
 ## AI assistance disclosure
 
-`[PLACEHOLDER: describe honestly how AI tools were used while building this project, e.g. which
-parts were written or reviewed with AI coding assistants, and which were designed/written by the
-team. Required by the event rules; fill in before submitting.]`
+Built by Satyam Kumar with heavy AI coding assistance. An AI coding agent wrote most of the code,
+tests and documentation in this repository, working from Satyam's direction. Satyam chose the idea and
+its direction, set the requirements (free, local-first, no invented numbers), tested the app and
+reviewed the results. Separately, the app itself uses small local open-weight models
+(`qwen2.5-coder` 1.5B/3B via Ollama) at runtime for chapter intros and chat answers, as described above.
