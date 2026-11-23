@@ -1,11 +1,17 @@
-# Repocademy: Devpost submission draft
+# Repocademy: Devpost submission
 
-> Fill in the bracketed placeholders before submitting. Don't add numbers you haven't measured.
+## Form fields (copy-paste)
 
-**Tagline:** Paste a GitHub link, get a guided course on that codebase: chapters, a live
-architecture map, instant quizzes and a chat that cites file:line.
+| Field | Value |
+|---|---|
+| Project name | Repocademy |
+| Tagline (≤200 chars) | Paste a GitHub link, get a guided course on that codebase: code-linked chapters, a traced call path, instant quizzes and a chat whose claims are checked against the call graph. |
+| Try it out / code | https://github.com/AlienLost08/repocademy |
+| Video demo link | `[VIDEO URL]`: Devpost only accepts a YouTube, Vimeo or Youku link. Upload `repocademy-demo.mp4` (2:20, 1280x720) there first and paste the URL. |
+| Thumbnail / gallery | `repocademy-thumbnail.png` (1280x720) plus screenshots from `docs/screenshots/` |
+| Built with | python, fastapi, tree-sitter, ast, d3.js, highlight.js, pyodide, ollama, qwen2.5-coder, piper-tts (demo voiceover), javascript, html, css |
 
-**Links:** GitHub: https://github.com/AlienLost08/repocademy · Demo video: `[VIDEO URL]`
+The sections below are the "About the project" story, in Devpost's order.
 
 ## Inspiration
 
@@ -112,6 +118,8 @@ analysis, so it runs free on local models.
 ## Built with
 
 python, fastapi, tree-sitter, ast, d3.js, highlight.js, pyodide, ollama, qwen2.5-coder, javascript, html, css
+
+(The demo video's voiceover was generated with piper-tts, a free local text-to-speech model.)
 
 ## AI assistance disclosure
 
