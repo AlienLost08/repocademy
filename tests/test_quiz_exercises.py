@@ -3,7 +3,8 @@ import random
 import textwrap
 
 from repocademy.analyze import analyze_repo
-from repocademy.exercises import js_exercises, python_exercises
+from repocademy.exercises import python_exercises
+from repocademy.js_exercises import js_exercises, strip_types
 from repocademy.model import Symbol
 from repocademy.quiz import mutate_symbol, string_lines
 
@@ -79,3 +80,24 @@ def test_bug_options_are_never_comment_lines():
         q = mutate_symbol(src, sym, random.Random(seed))
         if q:
             assert all(int(o.split()[1]) not in (2, 5) for o in q["options"])
+
+
+def test_strip_types_turns_typescript_into_javascript():
+    ts = "export const clamp = <T extends number>(v: T, lo: number, hi?: number): number => (v < lo ? lo : (v as number)) ;\ninterface X { a: string }\n"
+    js = strip_types(ts)
+    assert js is not None
+    assert ":" not in js.split("?")[0] and "interface" not in js and "as number" not in js and "export" not in js
+    assert "(v, lo, hi)" in js
+
+
+def test_ts_exercise_from_tests(tmp_path):
+    from conftest import write_tree
+    root = write_tree(tmp_path / "tsrepo", {
+        "package.json": '{"name": "tsrepo", "exports": "./dist/index.js"}',
+        "src/index.ts": "const UNITS: string[] = ['B', 'KB'];\n\nexport function pretty(n: number): string {\n  if (n < 1024) {\n    return `${n} ${UNITS[0]}`;\n  }\n  return `${Math.round(n / 1024)} ${UNITS[1]}`;\n}\n",
+        "test/index.test.ts": "import {pretty} from '../src/index';\nexpect(pretty(2048)).toBe('2 KB');\n",
+    })
+    g, _, files = analyze_repo(root)
+    ex = js_exercises(g, {f.path: f.text for f in files})
+    assert len(ex) == 1 and ex[0]["calls"][0]["call"] == "pretty(2048)"
+    assert "UNITS = ['B', 'KB']" in ex[0]["code"] and ": number" not in ex[0]["code"]

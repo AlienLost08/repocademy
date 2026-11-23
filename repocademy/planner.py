@@ -12,7 +12,8 @@ import re
 from collections import Counter, defaultdict, deque
 
 from . import quiz as Q
-from .exercises import js_exercises, python_exercises
+from .exercises import python_exercises
+from .js_exercises import js_exercises
 from .graph import RepoGraph
 from .model import Symbol
 from .repoinfo import NODE_BUILTINS, STDLIB, commands_from_readme, readme_description, usage_example
