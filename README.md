@@ -149,7 +149,8 @@ Rebuild them with `make showcase` (needs network; add `--renarrate` to rewrite t
 * Small local models (1.5B–3B) write decent intros but sometimes answer chat questions wrongly.
   Caller/callee and "method of" claims are checked against the call graph and citations are
   verified, but other statements (what a branch does, which type is set) are not. In our 8-question
-  chat check, about 5 answers were fully right; the rest were partly wrong or off-topic.
+  chat check (`eval/chat_eval.py`), 4 answers were right, 2 partly right, 1 wrong (express
+  `res.send` content types), and 1 had every claim removed by the checker, so it points at the code instead.
 * Exercises: JavaScript repos whose tests only go through HTTP or the public object (express,
   chalk) get few or no runnable exercises.
 * Python exercises need internet on first use to load Pyodide from the CDN.

@@ -194,6 +194,11 @@ def ask(course: dict, course_dir: Path, question: str, llm: LLM | None, history:
             lock.release()
     text = "".join(buf)
     text, corrections, extra = check_claims(text, g, hit_ids | set(ids), focus)
+    if corrections and len(re.sub(r"\[[^\]]*\]|\s", "", text)) < 20:
+        # every claim was unconfirmable: say so and point at the code instead of returning nothing
+        text = ("I couldn't confirm an answer from the call graph, so here is where to look:\n" +
+                "\n".join(f"- **`{c.title}`**" + (f": {c.summary}" if c.summary else "") + f" [{c.file}:{c.start}-{c.end}]"
+                           for c in top))
     cleaned, cites, removed = validate_citations(text, hits, repo["url"], repo["sha"], allowed_extra + extra)
     if not cites:  # an answer with no valid citation gets the evidence attached explicitly
         cleaned += "\n\nSources: " + " ".join(f"[{c.file}:{c.start}-{c.end}]" for c in hits[:3])

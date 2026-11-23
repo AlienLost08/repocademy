@@ -2,9 +2,9 @@
  {
   "repo": "psf__requests",
   "q": "How does a Session pick the adapter for a URL?",
-  "text": "A Session picks the adapter for a URL by calling the `get_adapter` method on the Session object, which iterates through the adapters defined in the Session object's `adapters` dictionary. If a match is found, it returns the corresponding adapter. If no match is found, it raises an InvalidSchema exception.\n\nSources: [src/requests/sessions.py:870-881] [src/requests/adapters.py:565-597] [src/requests/sessions.py:395-420]",
-  "first_token_ms": 1451,
-  "total_ms": 3623,
+  "text": "A Session picks the adapter for a URL by calling the `get_adapter` method on the Session object. This method iterates over the adapters defined in the Session object, checking if the URL starts with any of the prefixes defined in the adapters. If a match is found, the corresponding adapter is returned. If no match is found, an InvalidSchema exception is raised.\n\nSources: [src/requests/sessions.py:870-881] [src/requests/adapters.py:565-597] [src/requests/sessions.py:395-420]",
+  "first_token_ms": 1176,
+  "total_ms": 3513,
   "corrections": [],
   "removed": 0,
   "citations": [
@@ -16,22 +16,21 @@
  {
   "repo": "psf__requests",
   "q": "Where are redirects followed?",
-  "text": "Redirects are followed by the `Session.send` method [src/requests/sessions.py:804], which calls `SessionRedirectMixin.resolve_redirects` [src/requests/sessions.py:186].",
-  "first_token_ms": 93,
-  "total_ms": 1597,
+  "text": "Redirects are followed by the `Session.send` method, which calls `SessionRedirectMixin.resolve_redirects` [src/requests/sessions.py:804].",
+  "first_token_ms": 68,
+  "total_ms": 1057,
   "corrections": [],
   "removed": 0,
   "citations": [
-   "src/requests/sessions.py:804",
-   "src/requests/sessions.py:186"
+   "src/requests/sessions.py:804"
   ]
  },
  {
   "repo": "psf__requests",
   "q": "How are cookies stored between requests?",
-  "text": "Cookies are stored in the `RequestsCookieJar` object, which is created by default for requests and sessions that don't specify one. This jar is used to store cookies that are sent with each request. The `RequestsCookieJar` class is pickleable, which means it can be stored and loaded from a file.\n\nSources: [src/requests/models.py:407-422] [src/requests/cookies.py:191-216] [src/requests/compat.py:1-30]",
-  "first_token_ms": 76,
-  "total_ms": 1795,
+  "text": "Cookies are stored in the `RequestsCookieJar` object, which is created by default for requests and sessions that don't specify one. The `RequestsCookieJar` is a compatibility class that exposes a dict interface, which is used by the `Session.prepare_request` method to store cookies between requests.\n\nSources: [src/requests/models.py:407-422] [src/requests/cookies.py:191-216] [src/requests/compat.py:1-30]",
+  "first_token_ms": 63,
+  "total_ms": 1883,
   "corrections": [],
   "removed": 0,
   "citations": [
@@ -44,8 +43,8 @@
   "repo": "psf__requests",
   "q": "Who calls get_adapter?",
   "text": "`Session.get_adapter` is called by `Session.send` [src/requests/sessions.py:778].",
-  "first_token_ms": 1361,
-  "total_ms": 2135,
+  "first_token_ms": 1224,
+  "total_ms": 1844,
   "corrections": [],
   "removed": 0,
   "citations": [
@@ -55,10 +54,15 @@
  {
   "repo": "pallets__flask",
   "q": "How does the request context get pushed?",
-  "text": "The request context is pushed by the `Flask.request_context` method, which is called by `Flask.test_request_context` and `Flask.wsgi_app`. This method creates an `AppContext` with request information from the given WSGI environment and pushes it onto the context stack.\n\nSources: [src/flask/ctx.py:416-444] [src/flask/ctx.py:370-379] [src/flask/app.py:1562-1576]",
-  "first_token_ms": 211,
-  "total_ms": 2024,
-  "corrections": [],
+  "text": "This in turn calls `AppContext.from_environ` in `src/flask/app.py:1562`, which in turn calls `AppContext.push` in `src/flask/ctx.py:416`.\n\nSources: [src/flask/ctx.py:416-444] [src/flask/ctx.py:370-379] [src/flask/app.py:1562-1576]",
+  "first_token_ms": 144,
+  "total_ms": 3122,
+  "corrections": [
+   {
+    "claim": "The request context is pushed by the `Flask.test_request_context` method in `src/flask/app.py:1625`, which calls `Flask.wsgi_app` in `src/flask/app.py:1653`.",
+    "fix": "(removed: the call graph can't confirm it)"
+   }
+  ],
   "removed": 0,
   "citations": [
    "src/flask/ctx.py:416",
@@ -69,22 +73,23 @@
  {
   "repo": "pallets__flask",
   "q": "Where are blueprints registered?",
-  "text": "Blueprints are registered by the `register_blueprint` method of the `Blueprint` class, which is called by the `register_blueprint` method of the `App` class. The `register_blueprint` method of the `Blueprint` class is defined at [src/flask/sansio/blueprints.py:255] and is called by the `register_blueprint` method of the `App` class at [src/flask/sansio/app.py:596].",
-  "first_token_ms": 81,
-  "total_ms": 3042,
+  "text": "Blueprints are registered in the `Blueprint.register` method, which is called by `App.register_blueprint` in the Flask application.\n\nSources: [src/flask/wrappers.py:180-195] [src/flask/sansio/blueprints.py:273-332] [src/flask/sansio/blueprints.py:255-271]",
+  "first_token_ms": 90,
+  "total_ms": 914,
   "corrections": [],
   "removed": 0,
   "citations": [
-   "src/flask/sansio/blueprints.py:255",
-   "src/flask/sansio/app.py:596"
+   "src/flask/wrappers.py:180",
+   "src/flask/sansio/blueprints.py:273",
+   "src/flask/sansio/blueprints.py:255"
   ]
  },
  {
   "repo": "expressjs__express",
   "q": "How does res.send set the content type?",
-  "text": "The `res.send` method in Express sets the content type based on the provided body. If the content type is already set, it uses the `setCharset` function to ensure the charset is set to UTF-8. If the content type is not set, it uses the `contentType` function to set the content type to 'html'.\n\nSources: [lib/response.js:126-185] [lib/response.js:507-514] [lib/utils.js:225-238]",
-  "first_token_ms": 84,
-  "total_ms": 2290,
+  "text": "The `res.send` method sets the content type based on the type parameter provided. If the type is a string, it sets the content type to the specified charset. If the type is a boolean, number, or object, it sets the content type to 'html'. The `setCharset` function is used to set the charset for the content type.\n\nSources: [lib/response.js:126-185] [lib/response.js:507-514] [lib/utils.js:225-238]",
+  "first_token_ms": 68,
+  "total_ms": 2440,
   "corrections": [],
   "removed": 0,
   "citations": [
@@ -96,12 +101,12 @@
  {
   "repo": "axios__axios",
   "q": "How are interceptors run before a request?",
-  "text": "The `InterceptorManager.use` method takes three arguments: a fulfilled function, a rejected function, and an options object. The fulfilled function is called when the request is successful, and the rejected function is called when the request fails. The options object can specify whether the interceptor should be synchronous or run when the request is redirected.\n\nSources: [lib/core/InterceptorManager.js:77-102] [lib/adapters/http.js:300-320] [lib/core/dispatchRequest.js:67-126]",
-  "first_token_ms": 92,
-  "total_ms": 3210,
+  "text": "This function is part of the `InterceptorManager` class, which is used to manage interceptors for HTTP requests. The `dispatchBeforeRedirect` function checks for various redirect conditions and calls the appropriate interceptor functions to modify the request options before it is sent.\n\nSources: [lib/core/InterceptorManager.js:77-102] [lib/adapters/http.js:300-320] [lib/core/dispatchRequest.js:67-126]",
+  "first_token_ms": 96,
+  "total_ms": 2497,
   "corrections": [
    {
-    "claim": "Interceptors are run before a request by the `InterceptorManager.use` method, which is called by the `dispatchRequest` function, which is called by the `Axios.request` method.",
+    "claim": "Interceptors are run before a request by the `dispatchBeforeRedirect` function, which is called by the `Axios._request` method.",
     "fix": "(removed: the call graph can't confirm it)"
    }
   ],

@@ -102,3 +102,34 @@ def test_polish_strips_hype_keeps_grammar():
     from repocademy.narrate import polish
     assert polish("It is a robust and flexible system. It plays a crucial role in routing.", {}) == \
         "It is a flexible system. It handles routing."
+
+
+def test_answer_with_every_claim_removed_points_at_code(tmp_path, monkeypatch):
+    import repocademy.ask as A
+    hits = [A.Chunk("x", "a.py", 1, 5, "foo", "def foo():\n    pass", "Does foo.")]
+
+    class Idx:
+        def search(self, q, k=6):
+            return [(1.0, c) for c in hits]
+
+    class G:
+        symbols = {}
+        by_name = {}
+
+        def resolve(self, *a):
+            return None
+
+    monkeypatch.setattr(A, "load_index", lambda d: Idx())
+    monkeypatch.setattr(A, "load_graph", lambda d: G())
+    monkeypatch.setattr(A, "facts_for", lambda g, ids: [])
+    monkeypatch.setattr(A, "check_claims", lambda text, g, prefer, focus=None: ("", [{"claim": text, "fix": ""}], []))
+
+    class LLM:
+        label = "fake"
+
+        def stream(self, msgs, **kw):
+            yield "`foo` is called by `bar`."
+
+    course = {"repo": {"url": "https://github.com/o/r", "sha": "s", "owner": "o", "name": "r"}}
+    final = [e for e in A.ask(course, tmp_path, "who calls foo", LLM()) if e["type"] == "final"][0]
+    assert "couldn't confirm" in final["text"] and final["citations"]
