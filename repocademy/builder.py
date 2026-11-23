@@ -55,6 +55,14 @@ def graph_json(g, chapters: list[dict]) -> dict:
     return {"nodes": nodes, "edges": edges}
 
 
+def calls_json(g) -> dict:
+    """Symbol-level call graph for grounding chat answers: who calls what, at which line."""
+    syms = {sid: [s.qualname, s.file, s.start, s.end, s.kind, s.parent] for sid, s in g.symbols.items()
+            if g.modules[s.file].role in ("source", "example")}
+    edges = [[e.src, e.dst, e.line, int(e.weak)] for e in g.calls if e.src in syms and e.dst in syms]
+    return {"symbols": syms, "edges": edges}
+
+
 def chunks_for(g, files_text: dict[str, str], readme: tuple[str, str]) -> list[dict]:
     out = []
     for p, m in g.modules.items():
@@ -130,5 +138,6 @@ def build_from_checkout(path: Path, ref, sha: str, branch: str, out_dir: Path, p
     course["build_seconds"] = round(time.time() - t0, 2)
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "index.json").write_text(json.dumps(chunks_for(g, files_text, readme)))
+    (out_dir / "calls.json").write_text(json.dumps(calls_json(g)))
     (out_dir / "course.json").write_text(json.dumps(course))
     return course

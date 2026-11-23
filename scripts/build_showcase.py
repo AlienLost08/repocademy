@@ -59,7 +59,7 @@ def main(repos: list[str]) -> None:
             (src / "course.json").write_text(json.dumps(course))
         dst = out_root / course["slug"]
         dst.mkdir(exist_ok=True)
-        for name in ("course.json", "index.json"):
+        for name in ("course.json", "index.json", "calls.json"):
             shutil.copy2(src / name, dst / name)
         n = course.get("narration", {})
         print(f"{url}: {len(course['chapters'])} chapters, "
