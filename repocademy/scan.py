@@ -33,7 +33,7 @@ def role_of(path: str) -> str:
     name = p.rsplit("/", 1)[-1]
     if re.search(r"/(tests?|__tests__|spec|specs|testing)/", p) or re.match(r"(test_.*|.*_test)\.py$", name) or re.search(r"\.(test|spec|test-d|bench)\.[jt]sx?$", name) or re.search(r"/(test-d|type-tests?|__mocks__)/", p) or name == "conftest.py":
         return "test"
-    if re.search(r"/(examples?|samples?|demos?|benchmarks?|bench)/", p):
+    if re.search(r"/(examples?|samples?|demos?|benchmarks?|bench)/", p) or re.match(r"(benchmarks?|bench)\.[jt]s$|benchmarks?\.py$", name):
         return "example"
     if re.search(r"/(docs?|documentation)/", p):
         return "docs"

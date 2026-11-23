@@ -621,7 +621,14 @@ class Planner:
                 subtitle = next((d for d in docs if d), f"The `{u['dir']}/` package: {len(u['files'])} files working together")
             else:
                 p = u["files"][0]
-                title = _human(posixpath.basename(p).rsplit(".", 1)[0])
+                stem = posixpath.basename(p).rsplit(".", 1)[0]
+                if stem in ("__init__", "index", "mod", "main", "lib") :
+                    # "Init"/"Index" says nothing: name it after the package and show the file
+                    pkg = posixpath.basename(posixpath.dirname(p))
+                    pkg = self.ref.name if pkg in ("", "src", "source", "lib") else pkg
+                    title = f"Inside `{pkg}`: {posixpath.basename(p)}"
+                else:
+                    title = _human(stem)
                 top3 = sorted(syms, key=lambda s: -g.rank.get(s.id, 0))[:3]
                 subtitle = doc_summary(g.modules[p].doc) or ("Key pieces: " + ", ".join(f"`{s.qualname}`" for s in top3))
             chapters.append({"kind": "module", "title": title, "subtitle": subtitle, "files": u["files"], "intro": self.module_intro(u["files"], syms),
