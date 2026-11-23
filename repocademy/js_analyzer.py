@@ -264,6 +264,14 @@ def analyze_js(path: str, text: str, lang: str = "javascript") -> Module:
                     src = _require_of(val.child_by_field_name("object"))
                     mod.imports.append(Import(module=src, names=[(_t(val.child_by_field_name("property")), _t(nm))], line=d.start_point[0] + 1))
                     continue
+                if nm is not None and nm.type == "object_pattern" and val is not None and val.type == "identifier":
+                    for pp in nm.named_children:  # const {Axios, create} = axios
+                        if pp.type == "shorthand_property_identifier_pattern":
+                            mod.values.setdefault(_t(pp), f"{_t(val)}.{_t(pp)}")
+                        elif pp.type == "pair_pattern":
+                            k, v = pp.child_by_field_name("key"), pp.child_by_field_name("value")
+                            if k is not None and v is not None and v.type == "identifier":
+                                mod.values.setdefault(_t(v), f"{_t(val)}.{_t(k)}")
                 if nm is not None and nm.type == "identifier" and val is not None and val.type in ("call_expression", "new_expression"):
                     callee = val.child_by_field_name("function") or val.child_by_field_name("constructor")
                     ct = _call_text(callee) if callee is not None else ""
@@ -377,8 +385,11 @@ def analyze_js(path: str, text: str, lang: str = "javascript") -> Module:
                 for ch in node.named_children:
                     if ch.type == "export_clause":
                         for spec in ch.named_children:
-                            nm = spec.child_by_field_name("alias") or spec.child_by_field_name("name")
-                            mod.exports.append(_t(nm))
+                            al, nm0 = spec.child_by_field_name("alias"), spec.child_by_field_name("name")
+                            if al is not None and _t(al) == "default":  # export { axios as default }
+                                mod.default_export = _t(nm0)
+                                continue
+                            mod.exports.append(_t(al if al is not None else nm0))
                     elif ch.type == "identifier":
                         mod.default_export = _t(ch)
         else:

@@ -156,8 +156,15 @@ class Planner:
                     add_symbol_id(sid, is_default)
                     continue
                 if n in m.values:  # const axios = createInstance(defaults); export default axios
-                    r = g.lookup(path, m.values[n].split(".")[0]) if g.lookup else None
-                    if r and r[0] == "symbol":
+                    head, _, attr = m.values[n].partition(".")
+                    r = g.lookup(path, head) if g.lookup else None
+                    if r and r[0] == "module" and attr:  # const {Axios} = axios  (axios = another module's default)
+                        tgt = r[1]
+                        r = g.lookup(tgt, attr)
+                        if r is None:  # axios.Axios = Axios inside that module
+                            r = g.lookup(tgt, attr) or next((("symbol", x.id) for x in g.modules[tgt].symbols
+                                                              if x.qualname.endswith("." + attr) and x.parent is None), None)
+                    if r and r[0] == "symbol" and (not attr or head not in m.values):
                         add_symbol_id(r[1], is_default)
                     for x in m.symbols:  # axios.all = function …
                         if x.qualname.startswith(n + ".") and x.parent is None and x.public:
@@ -178,8 +185,9 @@ class Planner:
         uniq = {s.id for s in syms}
         if len(uniq) < 4 and files:
             near = {dst for src, dst, _ in g.imports if src in files and g.modules[dst].role == "source"}
-            extra = [s for s in self.ranked if s.file in near and s.public and s.id not in uniq and s.kind != "class" or
-                     (s.file in near and s.kind == "class" and s.id not in uniq)]
+            # members of the objects the factory wires up (`app.use`, `res.send`) or classes
+            extra = [s for s in self.ranked if s.file in near and s.public and s.id not in uniq
+                     and (s.kind == "class" or ("." in s.qualname and s.parent is None))]
             syms.extend(extra[: 6 - len(uniq)])
         return syms, files
 
@@ -214,7 +222,10 @@ class Planner:
             how = f"what `{files[0]}` exports" if files else ""
         # de-duplicate, rank, keep public
         out, seen_ids = [], set()
-        primary = getattr(self, "_primary", set())
+        primary = set(getattr(self, "_primary", set()))
+        pkg = re.sub(r"[^a-z0-9]", "", self.ref.name.lower())
+        primary |= {s.id for s in syms if s.kind == "class" and s.name.lower() == pkg}  # `Flask`, `Axios`, `Ky`
+        self._primary = primary
         for s in sorted(syms, key=lambda s: (s.id not in primary, -g.rank.get(s.id, 0))):
             if s.id not in seen_ids:
                 seen_ids.add(s.id)
