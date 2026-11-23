@@ -114,8 +114,13 @@ def _callees_sentence(g: CallGraph, sid: str) -> tuple[str, list[tuple[str, int]
     return f"`{g.q(sid)}` calls {names}.", cites
 
 
-def check_claims(text: str, g: CallGraph | None, prefer: set[str]) -> tuple[str, list[dict], list[tuple[str, int]]]:
-    """Returns (corrected text, corrections, extra allowed citations (file, line))."""
+def check_claims(text: str, g: CallGraph | None, prefer: set[str], focus: set[str] | None = None
+                 ) -> tuple[str, list[dict], list[tuple[str, int]]]:
+    """Returns (corrected text, corrections, extra allowed citations (file, line)).
+
+    A wrong caller/callee claim is rewritten from the graph when it is about a symbol in `focus` (what the
+    question asked about); otherwise it is dropped, so a side claim doesn't turn into a list of unrelated calls.
+    `focus=None` means always rewrite."""
     if g is None:
         return text, [], []
     out, fixes, allowed = [], [], []
@@ -154,16 +159,17 @@ def check_claims(text: str, g: CallGraph | None, prefer: set[str]) -> tuple[str,
                         objs = [g.resolve(n, prefer) for n in after[:3]]
                         objs = [o for o in objs if o]
                         if subj and objs:
+                            rewrite = focus is None or subj in focus
                             if pm is rel:
                                 wrong = [o for o in objs if not g.calls(o, subj)]
                                 if len(wrong) == len(objs):
-                                    fixed, c = _callers_sentence(g, subj)
+                                    fixed, c = _callers_sentence(g, subj) if rewrite else ("", [])
                                     repl = fixed
                                     allowed += c
                             else:
                                 wrong = [o for o in objs if not g.calls(subj, o)]
                                 if len(wrong) == len(objs):
-                                    fixed, c = _callees_sentence(g, subj)
+                                    fixed, c = _callees_sentence(g, subj) if rewrite else ("", [])
                                     repl = fixed
                                     allowed += c
                             if repl is not None:

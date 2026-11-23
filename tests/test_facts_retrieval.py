@@ -73,3 +73,11 @@ def test_hybrid_search_file_names_synonyms_and_tests():
     assert idx.search("where are redirects followed")[0][1].title == "SessionRedirectMixin.resolve_redirects"
     assert idx.search("which test covers the cookie jar?")[0][1].file.startswith("tests/")
     assert _stem("cookies") == _stem("cookie")
+
+
+def test_wrong_side_claim_outside_focus_is_dropped_not_rewritten(py_repo, tmp_path):
+    g, _ = _graph(py_repo, tmp_path)
+    text = "The session is created first. Merging happens in `merge_setting`, which is called by `Session.send`."
+    fixed, fixes, _ = check_claims(text, g, set(), focus={g.resolve("Session.request")})
+    assert fixed.strip() == "The session is created first."
+    assert fixes and "removed" in fixes[0]["fix"]

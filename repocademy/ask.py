@@ -144,9 +144,12 @@ def ask(course: dict, course_dir: Path, question: str, llm: LLM | None, history:
     top = hits[:3]
     # graph facts for the symbols we show, plus any symbol the question names
     ids = [c.id for c in top if g and c.id in g.symbols]
+    focus: set[str] = set(ids[:1])
     if g:
         for name in re.findall(r"[A-Za-z_][\w.]*[A-Za-z0-9_]", question):
             sid = g.resolve(name, hit_ids) if (len(name) > 3 and ("_" in name or "." in name or name[:1].isupper() or name in g.by_name)) else None
+            if sid:
+                focus.add(sid)
             if sid and sid not in ids:
                 ids.append(sid)
     facts = facts_for(g, ids[:4]) if g else []
@@ -190,7 +193,7 @@ def ask(course: dict, course_dir: Path, question: str, llm: LLM | None, history:
         if acquired:
             lock.release()
     text = "".join(buf)
-    text, corrections, extra = check_claims(text, g, hit_ids | set(ids))
+    text, corrections, extra = check_claims(text, g, hit_ids | set(ids), focus)
     cleaned, cites, removed = validate_citations(text, hits, repo["url"], repo["sha"], allowed_extra + extra)
     if not cites:  # an answer with no valid citation gets the evidence attached explicitly
         cleaned += "\n\nSources: " + " ".join(f"[{c.file}:{c.start}-{c.end}]" for c in hits[:3])
